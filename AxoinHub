@@ -1,0 +1,4037 @@
+-- language: Lua (Luau), file: hub.lua, target: Roblox executor (Xeno / Synapse / Krnl / Fluxus)
+-- AXION HUB v1.8 — full rewrite.
+-- Modules: Jailbreak · DOORS · Blox Fruits · MM2 · Ride a Pet · Build Anything · Arsenal · Misc
+
+--== SERVICES ==--
+--== AXION KEY GATE — Panda Auth (PUSL-V4) ==--
+-- Paste at the very top of hub.lua, above the SERVICES block.
+
+local REQUIRE_HWID   = true
+local PANDA_SERVICE  = "awesomescrpt"
+local PANDA_API      = "https://pandadevelopment.net/v2_validation"
+local KEY_CACHE      = "axion_key.txt"
+
+--== HWID ==--
+local function getHwid()
+    if gethwid then
+        local ok, h = pcall(gethwid)
+        if ok and h and #tostring(h) > 5 then return tostring(h) end
+    end
+    if syn and syn.get_hwid then
+        local ok, h = pcall(syn.get_hwid)
+        if ok and h and #tostring(h) > 5 then return tostring(h) end
+    end
+    local src = tostring(game.PlaceId) .. ":" .. tostring(game.Players.LocalPlayer.UserId)
+    local h = 0
+    for i = 1, #src do h = (h * 31 + src:byte(i)) % 2147483647 end
+    return "hwid_" .. tostring(h)
+end
+
+local MY_HWID = getHwid()
+
+--== VALIDATE ==--
+local function validateKey(key, hwid)
+    local url
+    if REQUIRE_HWID then
+        url = PANDA_API .. "?key=" .. key
+              .. "&service=" .. PANDA_SERVICE
+              .. "&hwid=" .. hwid
+    else
+        url = PANDA_API .. "?key=" .. key
+              .. "&service=" .. PANDA_SERVICE
+    end
+    local ok, res = pcall(function() return game:HttpGet(url) end)
+    if not ok or not res then return false end
+    local ok2, data = pcall(function()
+        return game:GetService("HttpService"):JSONDecode(res)
+    end)
+    if not ok2 or not data then return false end
+    return data.V2_Authentication == "success"
+        or data.success == true
+        or data.valid == true
+end
+
+--== CACHE ==--
+local function readCache()
+    if readfile and isfile and isfile(KEY_CACHE) then
+        local ok, data = pcall(readfile, KEY_CACHE)
+        if ok and data and #data > 5 then return data end
+    end
+    return nil
+end
+local function writeCache(k)
+    if writefile then pcall(writefile, KEY_CACHE, k) end
+end
+local function clearCache()
+    if delfile and isfile and isfile(KEY_CACHE) then
+        pcall(delfile, KEY_CACHE)
+    end
+end
+
+--== KEY GUI ==--
+local function buildKeyGui(hwid)
+    local getKeyUrl = "https://ads.pandauth.com/getkey/" .. PANDA_SERVICE
+                      .. "?hwid=" .. hwid
+
+    local sg = Instance.new("ScreenGui")
+    sg.Name           = "AXION_KEYGATE_" .. tostring(math.random(1e6))
+    sg.ResetOnSpawn   = false
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder   = 99999
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if syn and syn.protect_gui then pcall(syn.protect_gui, sg) end
+    if gethui then sg.Parent = gethui() else sg.Parent = game:GetService("CoreGui") end
+
+    local backdrop = Instance.new("Frame")
+    backdrop.Name = "Backdrop"
+    backdrop.Size = UDim2.fromScale(1, 1)
+    backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+    backdrop.BackgroundTransparency = 0.5
+    backdrop.BorderSizePixel = 0
+    backdrop.Parent = sg
+
+    local frame = Instance.new("Frame")
+    frame.Name             = "Panel"
+    frame.Size             = UDim2.fromOffset(480, 420)
+    frame.Position         = UDim2.new(0.5, -240, 0.5, -210)
+    frame.BackgroundColor3 = Color3.fromRGB(14, 16, 22)
+    frame.BorderSizePixel  = 0
+    frame.Active           = true
+    frame.Parent           = sg
+    local fc = Instance.new("UICorner") fc.CornerRadius = UDim.new(0, 12) fc.Parent = frame
+    local fs = Instance.new("UIStroke") fs.Color = Color3.fromRGB(120, 180, 255)
+    fs.Thickness = 1 fs.Transparency = 0.5 fs.Parent = frame
+
+    local strip = Instance.new("Frame")
+    strip.Size = UDim2.new(1, 0, 0, 2)
+    strip.BackgroundColor3 = Color3.fromRGB(120, 180, 255)
+    strip.BorderSizePixel = 0
+    strip.Parent = frame
+    local gc = Instance.new("UIGradient")
+    gc.Color = ColorSequence.new(Color3.fromRGB(120,180,255), Color3.fromRGB(180,220,255))
+    gc.Parent = strip
+
+    --===== DRAG HANDLE (title bar) =====--
+    local dragBar = Instance.new("Frame")
+    dragBar.Name = "DragBar"
+    dragBar.Size = UDim2.new(1, 0, 0, 60)
+    dragBar.BackgroundTransparency = 1
+    dragBar.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Position = UDim2.new(0, 0, 0, 14)
+    title.BackgroundTransparency = 1
+    title.Text = "AXION HUB"
+    title.TextColor3 = Color3.fromRGB(235, 240, 250)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 22
+    title.Parent = dragBar
+
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Size = UDim2.new(1, 0, 0, 16)
+    subtitle.Position = UDim2.new(0, 0, 0, 42)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = REQUIRE_HWID and "key verification · hwid-locked" or "key verification"
+    subtitle.TextColor3 = Color3.fromRGB(150, 158, 175)
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextSize = 12
+    subtitle.Parent = dragBar
+
+    --===== CLOSE BUTTON =====--
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.fromOffset(26, 26)
+    closeBtn.Position = UDim2.new(1, -34, 0, 12)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.fromRGB(150, 158, 175)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 14
+    closeBtn.BorderSizePixel = 0
+    closeBtn.AutoButtonColor = false
+    closeBtn.Parent = frame
+    local cbc = Instance.new("UICorner") cbc.CornerRadius = UDim.new(0, 6) cbc.Parent = closeBtn
+    closeBtn.MouseEnter:Connect(function()
+        closeBtn.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+        closeBtn.TextColor3 = Color3.fromRGB(235, 240, 250)
+    end)
+    closeBtn.MouseLeave:Connect(function()
+        closeBtn.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
+        closeBtn.TextColor3 = Color3.fromRGB(150, 158, 175)
+    end)
+
+    --===== DRAG LOGIC =====--
+    local dragging = false
+    local dragStart, startPos
+    dragBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = frame.Position
+        end
+    end)
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+                      or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    game:GetService("UserInputService").InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    --===== STEP 1 =====--
+    local step1 = Instance.new("TextLabel")
+    step1.Size = UDim2.new(1, -32, 0, 20)
+    step1.Position = UDim2.new(0, 16, 0, 78)
+    step1.BackgroundTransparency = 1
+    step1.Text = "STEP 1 — GET YOUR KEY"
+    step1.TextColor3 = Color3.fromRGB(120, 180, 255)
+    step1.Font = Enum.Font.GothamBold
+    step1.TextSize = 11
+    step1.TextXAlignment = Enum.TextXAlignment.Left
+    step1.Parent = frame
+
+    local hwidLbl = Instance.new("TextLabel")
+    hwidLbl.Size = UDim2.new(1, -32, 0, 16)
+    hwidLbl.Position = UDim2.new(0, 16, 0, 100)
+    hwidLbl.BackgroundTransparency = 1
+    hwidLbl.Text = REQUIRE_HWID and ("your hwid:  " .. hwid) or "hwid-lock disabled"
+    hwidLbl.TextColor3 = Color3.fromRGB(150, 158, 175)
+    hwidLbl.Font = Enum.Font.Code
+    hwidLbl.TextSize = 11
+    hwidLbl.TextXAlignment = Enum.TextXAlignment.Left
+    hwidLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    hwidLbl.Parent = frame
+
+    local urlBtn = Instance.new("TextButton")
+    urlBtn.Size = UDim2.new(1, -32, 0, 34)
+    urlBtn.Position = UDim2.new(0, 16, 0, 122)
+    urlBtn.BackgroundColor3 = Color3.fromRGB(40, 70, 120)
+    urlBtn.Text = "copy key URL"
+    urlBtn.TextColor3 = Color3.fromRGB(235, 240, 250)
+    urlBtn.Font = Enum.Font.GothamMedium
+    urlBtn.TextSize = 13
+    urlBtn.BorderSizePixel = 0
+    urlBtn.AutoButtonColor = false
+    urlBtn.Parent = frame
+    local ubc = Instance.new("UICorner") ubc.CornerRadius = UDim.new(0, 6) ubc.Parent = urlBtn
+    local ubs = Instance.new("UIStroke")
+    ubs.Color = Color3.fromRGB(120, 180, 255) ubs.Thickness = 1 ubs.Transparency = 0.6 ubs.Parent = urlBtn
+    urlBtn.MouseEnter:Connect(function() urlBtn.BackgroundColor3 = Color3.fromRGB(60, 100, 160) end)
+    urlBtn.MouseLeave:Connect(function() urlBtn.BackgroundColor3 = Color3.fromRGB(40, 70, 120) end)
+    urlBtn.MouseButton1Click:Connect(function()
+        if setclipboard then
+            pcall(setclipboard, getKeyUrl)
+            urlBtn.Text = "✓ copied — open it in your browser"
+            task.delay(2.5, function() urlBtn.Text = "copy key URL" end)
+        else
+            urlBtn.Text = "no clipboard — see footer URL"
+            task.delay(3, function() urlBtn.Text = "copy key URL" end)
+        end
+    end)
+
+    local rawUrlLbl = Instance.new("TextLabel")
+    rawUrlLbl.Size = UDim2.new(1, -32, 0, 16)
+    rawUrlLbl.Position = UDim2.new(0, 16, 0, 160)
+    rawUrlLbl.BackgroundTransparency = 1
+    rawUrlLbl.Text = getKeyUrl
+    rawUrlLbl.TextColor3 = Color3.fromRGB(90, 100, 120)
+    rawUrlLbl.Font = Enum.Font.Code
+    rawUrlLbl.TextSize = 9
+    rawUrlLbl.TextXAlignment = Enum.TextXAlignment.Left
+    rawUrlLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    rawUrlLbl.Parent = frame
+
+    --===== STEP 2 =====--
+    local step2 = Instance.new("TextLabel")
+    step2.Size = UDim2.new(1, -32, 0, 20)
+    step2.Position = UDim2.new(0, 16, 0, 186)
+    step2.BackgroundTransparency = 1
+    step2.Text = "STEP 2 — PASTE YOUR KEY"
+    step2.TextColor3 = Color3.fromRGB(120, 180, 255)
+    step2.Font = Enum.Font.GothamBold
+    step2.TextSize = 11
+    step2.TextXAlignment = Enum.TextXAlignment.Left
+    step2.Parent = frame
+
+    local keyBox = Instance.new("TextBox")
+    keyBox.Size = UDim2.new(1, -32, 0, 36)
+    keyBox.Position = UDim2.new(0, 16, 0, 208)
+    keyBox.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
+    keyBox.BorderSizePixel = 0
+    keyBox.PlaceholderText = "paste your key here..."
+    keyBox.Text = ""
+    keyBox.TextColor3 = Color3.fromRGB(235, 240, 250)
+    keyBox.Font = Enum.Font.Code
+    keyBox.TextSize = 13
+    keyBox.ClearTextOnFocus = false
+    keyBox.Parent = frame
+    local kc = Instance.new("UICorner") kc.CornerRadius = UDim.new(0, 6) kc.Parent = keyBox
+    local ks = Instance.new("UIStroke")
+    ks.Color = Color3.fromRGB(120, 180, 255) ks.Thickness = 1 ks.Transparency = 0.7 ks.Parent = keyBox
+
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, -32, 0, 18)
+    status.Position = UDim2.new(0, 16, 0, 252)
+    status.BackgroundTransparency = 1
+    status.Text = ""
+    status.TextColor3 = Color3.fromRGB(150, 158, 175)
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 11
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.Parent = frame
+
+    local verifyBtn = Instance.new("TextButton")
+    verifyBtn.Size = UDim2.new(1, -32, 0, 40)
+    verifyBtn.Position = UDim2.new(0, 16, 0, 280)
+    verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 180, 255)
+    verifyBtn.Text = "VERIFY & LOAD HUB"
+    verifyBtn.TextColor3 = Color3.fromRGB(14, 16, 22)
+    verifyBtn.Font = Enum.Font.GothamBold
+    verifyBtn.TextSize = 14
+    verifyBtn.BorderSizePixel = 0
+    verifyBtn.AutoButtonColor = false
+    verifyBtn.Parent = frame
+    local vc = Instance.new("UICorner") vc.CornerRadius = UDim.new(0, 6) vc.Parent = verifyBtn
+    verifyBtn.MouseEnter:Connect(function() verifyBtn.BackgroundColor3 = Color3.fromRGB(160, 200, 255) end)
+    verifyBtn.MouseLeave:Connect(function() verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 180, 255) end)
+
+    local hint = Instance.new("TextLabel")
+    hint.Size = UDim2.new(1, -32, 0, 18)
+    hint.Position = UDim2.new(0, 16, 0, 332)
+    hint.BackgroundTransparency = 1
+    hint.Text = REQUIRE_HWID
+        and "key binds to this hwid — not shareable"
+        or  "hwid lock off — key works on any device"
+    hint.TextColor3 = Color3.fromRGB(120, 130, 150)
+    hint.Font = Enum.Font.Gotham
+    hint.TextSize = 10
+    hint.TextXAlignment = Enum.TextXAlignment.Center
+    hint.Parent = frame
+
+    local verLbl = Instance.new("TextLabel")
+    verLbl.Size = UDim2.new(1, -32, 0, 16)
+    verLbl.Position = UDim2.new(0, 16, 0, 356)
+    verLbl.BackgroundTransparency = 1
+    verLbl.Text = "powered by panda auth  ·  secure.pandauth.com"
+    verLbl.TextColor3 = Color3.fromRGB(90, 100, 120)
+    verLbl.Font = Enum.Font.Gotham
+    verLbl.TextSize = 10
+    verLbl.TextXAlignment = Enum.TextXAlignment.Center
+    verLbl.Parent = frame
+
+    local state = { verified = false, closed = false, checking = false }
+
+    --===== CLOSE =====--
+    closeBtn.MouseButton1Click:Connect(function()
+        state.closed = true
+        sg:Destroy()
+    end)
+
+    --===== VERIFY =====--
+    verifyBtn.MouseButton1Click:Connect(function()
+        if state.checking then return end
+        local key = (keyBox.Text or ""):gsub("%s+", "")
+        if #key < 6 then
+            status.Text = "key looks too short"
+            status.TextColor3 = Color3.fromRGB(255, 90, 90)
+            return
+        end
+
+        state.checking = true
+        status.Text = "checking with panda auth..."
+        status.TextColor3 = Color3.fromRGB(255, 190, 90)
+        verifyBtn.Text = "CHECKING..."
+        verifyBtn.BackgroundColor3 = Color3.fromRGB(180, 180, 180)
+
+        task.spawn(function()
+            local ok = validateKey(key, hwid)
+            state.checking = false
+
+            if ok then
+                writeCache(key)
+                state.verified = true
+                status.Text = "valid — loading hub"
+                status.TextColor3 = Color3.fromRGB(120, 230, 140)
+                verifyBtn.Text = "AUTHENTICATED"
+                verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 230, 140)
+                task.wait(0.7)
+                sg:Destroy()
+            else
+                status.Text = REQUIRE_HWID
+                    and "invalid key, or not bound to this hwid"
+                    or  "invalid key"
+                status.TextColor3 = Color3.fromRGB(255, 90, 90)
+                verifyBtn.Text = "VERIFY & LOAD HUB"
+                verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 180, 255)
+            end
+        end)
+    end)
+
+    return sg, state
+end
+
+--== GATE ==--
+local function keyGate()
+    local cached = readCache()
+    if cached and validateKey(cached, MY_HWID) then
+        return true
+    elseif cached then
+        clearCache()
+    end
+
+    local sg, state = buildKeyGui(MY_HWID)
+    while not state.verified and not state.closed and sg.Parent do
+        task.wait(0.2)
+    end
+    return state.verified
+end
+
+if not keyGate() then return end
+--== END KEY GATE ==--
+local Players                = game:GetService("Players")
+local TweenService           = game:GetService("TweenService")
+local UserInputService       = game:GetService("UserInputService")
+local RunService             = game:GetService("RunService")
+local CoreGui                = game:GetService("CoreGui")
+local TeleportService        = game:GetService("TeleportService")
+local HttpService            = game:GetService("HttpService")
+local VirtualUser            = game:GetService("VirtualUser")
+local Workspace              = game:GetService("Workspace")
+local Lighting               = game:GetService("Lighting")
+local Stats                  = game:GetService("Stats")
+local ReplicatedStorage      = game:GetService("ReplicatedStorage")
+local VirtualInputManager    = game:GetService("VirtualInputManager")
+local SoundService           = game:GetService("SoundService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
+
+--== EXECUTOR PROBE ==--
+local function identifyExecutor()
+    if identifyexecutor then
+        local ok, name = pcall(identifyexecutor)
+        if ok and type(name) == "string" then return name end
+    end
+    if rawget(getfenv(), "Xeno") or rawget(getfenv(), "xeno") then return "Xeno" end
+    if syn then return "Synapse" end
+    if KRNL_LOADED then return "Krnl" end
+    if fluxus then return "Fluxus" end
+    return "Unknown"
+end
+local EXECUTOR = identifyExecutor()
+
+local FEATURES = {
+    gethui     = (gethui ~= nil),
+    queue      = (queue_on_teleport ~= nil) or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport),
+    protect    = (syn and syn.protect_gui) ~= nil,
+    firetouch  = (firetouchinterest ~= nil),
+    fireprox   = (fireproximityprompt ~= nil),
+    drawing    = (Drawing ~= nil),
+    clipboard  = (setclipboard ~= nil),
+}
+
+--== CONFIG ==--
+local CONFIG = {
+    Name        = "AXION HUB",
+    Version     = "1.8.0",
+    Accent      = Color3.fromRGB(120, 180, 255),
+    AccentDark  = Color3.fromRGB(40, 70, 120),
+    BG          = Color3.fromRGB(14, 16, 22),
+    BG2         = Color3.fromRGB(22, 25, 33),
+    Text        = Color3.fromRGB(235, 240, 250),
+    SubText     = Color3.fromRGB(150, 158, 175),
+    Danger      = Color3.fromRGB(255, 90, 90),
+    Safe        = Color3.fromRGB(120, 230, 140),
+    Warn        = Color3.fromRGB(255, 190, 90),
+    SheriffBlue = Color3.fromRGB(80, 160, 255),
+    MurderRed   = Color3.fromRGB(255, 60, 60),
+    InnocentGrn = Color3.fromRGB(110, 220, 130),
+    CoinGold    = Color3.fromRGB(255, 210, 90),
+    TeamRed     = Color3.fromRGB(255, 70, 70),
+    TeamBlue    = Color3.fromRGB(70, 130, 255),
+    Off         = Color3.fromRGB(50, 45, 65),
+    ToggleKey   = Enum.KeyCode.RightShift,
+    W           = 620,
+    H           = 420,
+    LoaderTime  = 4.5,
+    SelfUrl     = "https://raw.githubusercontent.com/yourname/axionhub/main/hub.lua",
+}
+
+--== GAME REGISTRY ==--
+local GAMES = {
+    ["Blox Fruits"]      = { PlaceIds = {2753915549, 4442272183, 7449423635}, JoinPlaceId = 2753915549,     Build = nil },
+    ["Arsenal"]          = { PlaceIds = {286090429},                          JoinPlaceId = 286090429,      Build = nil },
+    ["Jailbreak"]        = { PlaceIds = {606849621},                          JoinPlaceId = 606849621,      Build = nil },
+    ["Doors"]            = { PlaceIds = {6516141723},                         JoinPlaceId = 6516141723,     Build = nil },
+    ["Pet Simulator X"]  = { PlaceIds = {6284583030},                         JoinPlaceId = 6284583030,     Build = nil },
+    ["Adopt Me"]         = { PlaceIds = {920587237},                          JoinPlaceId = 920587237,      Build = nil },
+    ["Tower Defense Sim"]= { PlaceIds = {3260590327},                         JoinPlaceId = 3260590327,     Build = nil },
+    ["Murder Mystery 2"] = { PlaceIds = {142823291},                          JoinPlaceId = 142823291,      Build = nil },
+    ["Phantom Forces"]   = { PlaceIds = {292439477},                          JoinPlaceId = 292439477,      Build = nil },
+    ["Da Hood"]          = { PlaceIds = {2788229376},                         JoinPlaceId = 2788229376,     Build = nil },
+    ["Ride a Pet"]       = { PlaceIds = {124216119978534},                    JoinPlaceId = 124216119978534, Build = nil },
+    ["Build Anything"]   = { PlaceIds = {125488740127641},                    JoinPlaceId = 125488740127641, Build = nil },
+}
+
+--== UTILITY ==--
+local function tween(obj, time, props, style, dir)
+    local t = TweenService:Create(
+        obj,
+        TweenInfo.new(time or 0.25, style or Enum.EasingStyle.Quart, dir or Enum.EasingDirection.Out),
+        props
+    )
+    t:Play()
+    return t
+end
+
+local function corner(parent, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 8)
+    c.Parent = parent
+    return c
+end
+
+local function stroke(parent, color, thickness, transparency)
+    local s = Instance.new("UIStroke")
+    s.Color           = color or CONFIG.Accent
+    s.Thickness       = thickness or 1
+    s.Transparency    = transparency or 0.6
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent          = parent
+    return s
+end
+
+local function gradient(parent, c1, c2, rot)
+    local g = Instance.new("UIGradient")
+    g.Color    = ColorSequence.new(c1, c2)
+    g.Rotation = rot or 90
+    g.Parent   = parent
+    return g
+end
+
+local function getGuiParent()
+    if gethui then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
+    end
+    if syn and syn.protect_gui then
+        local sg = Instance.new("ScreenGui")
+        syn.protect_gui(sg)
+        sg.Parent = CoreGui
+        return CoreGui
+    end
+    if CoreGui:FindFirstChild("RobloxGui") then return CoreGui end
+    return PlayerGui
+end
+
+local function queueAfterTeleport(script_text)
+    if queue_on_teleport then queue_on_teleport(script_text); return true end
+    if syn and syn.queue_on_teleport then syn.queue_on_teleport(script_text); return true end
+    if fluxus and fluxus.queue_on_teleport then fluxus.queue_on_teleport(script_text); return true end
+    return false
+end
+
+--== STATE ==--
+local State = {
+    UiVisible   = true,
+    ActiveTab   = nil,
+    Tabs        = {},
+    AutoRunName = _G.AXION_AUTORUN or nil,
+    Conn        = {},
+}
+_G.AXION_AUTORUN = nil
+
+--== LOADING SCREEN ==--
+local function buildLoadingScreen()
+    local sg = Instance.new("ScreenGui")
+    sg.Name           = "AXION_LOADER_" .. tostring(math.random(1e6))
+    sg.ResetOnSpawn   = false
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder   = 999
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if syn and syn.protect_gui then pcall(syn.protect_gui, sg) end
+    sg.Parent = getGuiParent()
+
+    local root = Instance.new("Frame")
+    root.Size             = UDim2.fromScale(1, 1)
+    root.BackgroundColor3 = CONFIG.BG
+    root.BorderSizePixel  = 0
+    root.ZIndex           = 1
+    root.Parent           = sg
+
+    local glow = Instance.new("Frame")
+    glow.Size                   = UDim2.fromScale(1, 1)
+    glow.BackgroundColor3       = CONFIG.Accent
+    glow.BackgroundTransparency = 1
+    glow.BorderSizePixel        = 0
+    glow.ZIndex                 = 1
+    glow.Parent                 = root
+    gradient(glow, CONFIG.Accent, CONFIG.BG, 90)
+
+    local title = Instance.new("TextLabel")
+    title.Size                   = UDim2.new(1, 0, 0, 44)
+    title.Position               = UDim2.new(0, 0, 0.5, -60)
+    title.BackgroundTransparency = 1
+    title.Font                   = Enum.Font.GothamBold
+    title.Text                   = CONFIG.Name
+    title.TextColor3             = CONFIG.Text
+    title.TextSize               = 34
+    title.TextTransparency       = 1
+    title.ZIndex                 = 3
+    title.Parent                 = root
+
+    local status = Instance.new("TextLabel")
+    status.Size                   = UDim2.new(1, 0, 0, 20)
+    status.Position               = UDim2.new(0, 0, 0.5, 40)
+    status.BackgroundTransparency = 1
+    status.Font                   = Enum.Font.Gotham
+    status.Text                   = "initializing..."
+    status.TextColor3             = CONFIG.SubText
+    status.TextSize               = 14
+    status.TextTransparency       = 1
+    status.ZIndex                 = 3
+    status.Parent                 = root
+
+    local track = Instance.new("Frame")
+    track.Size                   = UDim2.new(0, 260, 0, 4)
+    track.Position               = UDim2.new(0.5, -130, 0.5, 80)
+    track.BackgroundColor3       = CONFIG.BG2
+    track.BorderSizePixel        = 0
+    track.BackgroundTransparency = 1
+    track.ZIndex                 = 3
+    track.Parent                 = root
+    corner(track, 2)
+
+    local bar = Instance.new("Frame")
+    bar.Size             = UDim2.new(0, 0, 1, 0)
+    bar.BackgroundColor3 = CONFIG.Accent
+    bar.BorderSizePixel  = 0
+    bar.ZIndex           = 4
+    bar.Parent           = track
+    corner(bar, 2)
+    gradient(bar, CONFIG.Accent, Color3.fromRGB(180, 220, 255), 0)
+
+    tween(title,  0.6, {TextTransparency = 0})
+    tween(status, 0.6, {TextTransparency = 0})
+    tween(track,  0.6, {BackgroundTransparency = 0})
+    tween(glow,   1.6, {BackgroundTransparency = 0.85})
+
+    local steps = {
+        {0.08, "hooking environment"},
+        {0.20, "resolving services"},
+        {0.34, "executor: " .. EXECUTOR},
+        {0.48, "loading ui modules"},
+        {0.62, "building game registry"},
+        {0.76, "priming hooks"},
+        {0.88, "warming cache"},
+        {1.00, "ready"},
+    }
+
+    local done = false
+    task.spawn(function()
+        local per = CONFIG.LoaderTime / #steps
+        for _, step in ipairs(steps) do
+            status.Text = step[2]
+            tween(bar, per * 0.9, {Size = UDim2.new(step[1], 0, 1, 0)})
+            task.wait(per)
+        end
+        task.wait(0.4)
+        done = true
+    end)
+
+    while not done do task.wait(0.05) end
+
+    tween(root,  0.45, {BackgroundTransparency = 1})
+    tween(title, 0.35, {TextTransparency = 1})
+    tween(status,0.35, {TextTransparency = 1})
+    tween(bar,   0.35, {BackgroundTransparency = 1})
+    tween(track, 0.35, {BackgroundTransparency = 1})
+    task.wait(0.5)
+    sg:Destroy()
+end
+
+--== MAIN UI ==--
+local function buildMainUi()
+    local sg = Instance.new("ScreenGui")
+    sg.Name           = "AXION_HUB_" .. tostring(math.random(1e6))
+    sg.ResetOnSpawn   = false
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder   = 998
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if syn and syn.protect_gui then pcall(syn.protect_gui, sg) end
+    sg.Parent = getGuiParent()
+
+    local win = Instance.new("Frame")
+    win.Name             = "Window"
+    win.Size             = UDim2.fromOffset(CONFIG.W, CONFIG.H)
+    win.Position         = UDim2.new(0.5, -CONFIG.W/2, 0.5, -CONFIG.H/2)
+    win.BackgroundColor3 = CONFIG.BG
+    win.BorderSizePixel  = 0
+    win.ClipsDescendants = true
+    win.Parent           = sg
+    corner(win, 10)
+    stroke(win, CONFIG.Accent, 1, 0.55)
+
+    local strip = Instance.new("Frame")
+    strip.Size             = UDim2.new(1, 0, 0, 2)
+    strip.BackgroundColor3 = CONFIG.Accent
+    strip.BorderSizePixel  = 0
+    strip.Parent           = win
+    gradient(strip, CONFIG.Accent, Color3.fromRGB(180, 220, 255), 0)
+
+    local bar = Instance.new("Frame")
+    bar.Name             = "TitleBar"
+    bar.Size             = UDim2.new(1, 0, 0, 40)
+    bar.BackgroundColor3 = CONFIG.BG2
+    bar.BorderSizePixel  = 0
+    bar.Parent           = win
+
+    local titleTxt = Instance.new("TextLabel")
+    titleTxt.Size                   = UDim2.new(1, -120, 1, 0)
+    titleTxt.Position               = UDim2.new(0, 14, 0, 0)
+    titleTxt.BackgroundTransparency = 1
+    titleTxt.Font                   = Enum.Font.GothamBold
+    titleTxt.Text                   = CONFIG.Name .. "  ·  v" .. CONFIG.Version .. "  ·  " .. EXECUTOR
+    titleTxt.TextColor3             = CONFIG.Text
+    titleTxt.TextSize               = 14
+    titleTxt.TextXAlignment         = Enum.TextXAlignment.Left
+    titleTxt.Parent                 = bar
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size             = UDim2.fromOffset(30, 30)
+    closeBtn.Position         = UDim2.new(1, -38, 0, 5)
+    closeBtn.BackgroundColor3 = CONFIG.BG
+    closeBtn.Text             = "×"
+    closeBtn.Font             = Enum.Font.GothamBold
+    closeBtn.TextSize         = 18
+    closeBtn.TextColor3       = CONFIG.SubText
+    closeBtn.BorderSizePixel  = 0
+    closeBtn.Parent           = bar
+    corner(closeBtn, 6)
+    closeBtn.MouseEnter:Connect(function()
+        tween(closeBtn, 0.15, {BackgroundColor3 = Color3.fromRGB(200, 80, 80), TextColor3 = CONFIG.Text})
+    end)
+    closeBtn.MouseLeave:Connect(function()
+        tween(closeBtn, 0.15, {BackgroundColor3 = CONFIG.BG, TextColor3 = CONFIG.SubText})
+    end)
+    closeBtn.MouseButton1Click:Connect(function()
+        State.UiVisible = false
+        tween(win, 0.2, {Size = UDim2.fromOffset(CONFIG.W, 0)})
+        task.wait(0.2)
+        win.Visible = false
+    end)
+
+    local side = Instance.new("Frame")
+    side.Name             = "Sidebar"
+    side.Size             = UDim2.new(0, 150, 1, -40)
+    side.Position         = UDim2.new(0, 0, 0, 40)
+    side.BackgroundColor3 = CONFIG.BG2
+    side.BorderSizePixel  = 0
+    side.Parent           = win
+
+    local sideList = Instance.new("UIListLayout")
+    sideList.Padding   = UDim.new(0, 4)
+    sideList.SortOrder = Enum.SortOrder.LayoutOrder
+    sideList.Parent    = side
+
+    local sidePad = Instance.new("UIPadding")
+    sidePad.PaddingTop   = UDim.new(0, 10)
+    sidePad.PaddingLeft  = UDim.new(0, 8)
+    sidePad.PaddingRight = UDim.new(0, 8)
+    sidePad.Parent       = side
+
+    local content = Instance.new("Frame")
+    content.Name             = "Content"
+    content.Size             = UDim2.new(1, -150, 1, -40)
+    content.Position         = UDim2.new(0, 150, 0, 40)
+    content.BackgroundColor3 = CONFIG.BG
+    content.BorderSizePixel  = 0
+    content.Parent           = win
+
+    local pagesFolder = Instance.new("Folder")
+    pagesFolder.Name   = "Pages"
+    pagesFolder.Parent = content
+
+    local Hub = { Window = win, Sidebar = side, Content = content, Pages = pagesFolder }
+
+    function Hub:AddTab(name)
+        local btn = Instance.new("TextButton")
+        btn.Size                   = UDim2.new(1, 0, 0, 32)
+        btn.BackgroundColor3       = CONFIG.BG
+        btn.BackgroundTransparency = 0.4
+        btn.Text                   = name
+        btn.Font                   = Enum.Font.GothamMedium
+        btn.TextSize               = 13
+        btn.TextColor3             = CONFIG.SubText
+        btn.TextXAlignment         = Enum.TextXAlignment.Left
+        btn.BorderSizePixel        = 0
+        btn.AutoButtonColor        = false
+        btn.Parent                 = side
+        corner(btn, 6)
+
+        local btnPad = Instance.new("UIPadding")
+        btnPad.PaddingLeft = UDim.new(0, 10)
+        btnPad.Parent      = btn
+
+        local page = Instance.new("ScrollingFrame")
+        page.Name                   = name
+        page.Size                   = UDim2.fromScale(1, 1)
+        page.BackgroundTransparency = 1
+        page.BorderSizePixel        = 0
+        page.ScrollBarThickness     = 3
+        page.ScrollBarImageColor3   = CONFIG.Accent
+        page.CanvasSize             = UDim2.new(0, 0, 0, 0)
+        page.Visible                = false
+        page.Parent                 = pagesFolder
+
+        local layout = Instance.new("UIListLayout")
+        layout.Padding   = UDim.new(0, 6)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.Parent    = page
+
+        local pad = Instance.new("UIPadding")
+        pad.PaddingTop    = UDim.new(0, 10)
+        pad.PaddingBottom = UDim.new(0, 10)
+        pad.PaddingLeft   = UDim.new(0, 10)
+        pad.PaddingRight  = UDim.new(0, 10)
+        pad.Parent        = page
+
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+        end)
+
+        local tab = { button = btn, page = page, name = name }
+
+        local function select()
+            for _, t in pairs(State.Tabs) do
+                tween(t.button, 0.15, {BackgroundColor3 = CONFIG.BG, TextColor3 = CONFIG.SubText})
+                t.page.Visible = false
+            end
+            tween(btn, 0.15, {BackgroundColor3 = CONFIG.AccentDark, TextColor3 = CONFIG.Text})
+            page.Visible = true
+            State.ActiveTab = name
+        end
+
+        btn.MouseButton1Click:Connect(select)
+        btn.MouseEnter:Connect(function()
+            if State.ActiveTab ~= name then
+                tween(btn, 0.12, {BackgroundColor3 = CONFIG.BG2, TextColor3 = CONFIG.Text})
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if State.ActiveTab ~= name then
+                tween(btn, 0.12, {BackgroundColor3 = CONFIG.BG, TextColor3 = CONFIG.SubText})
+            end
+        end)
+
+        State.Tabs[name] = tab
+        return tab
+    end
+
+    function Hub:AddButton(page, text, cb)
+        local b = Instance.new("TextButton")
+        b.Size             = UDim2.new(1, 0, 0, 30)
+        b.BackgroundColor3 = CONFIG.BG2
+        b.Text             = text
+        b.Font             = Enum.Font.GothamMedium
+        b.TextSize         = 13
+        b.TextColor3       = CONFIG.Text
+        b.BorderSizePixel  = 0
+        b.AutoButtonColor  = false
+        b.Parent           = page
+        corner(b, 6)
+        stroke(b, CONFIG.Accent, 1, 0.85)
+
+        b.MouseEnter:Connect(function() tween(b, 0.12, {BackgroundColor3 = CONFIG.AccentDark}) end)
+        b.MouseLeave:Connect(function() tween(b, 0.12, {BackgroundColor3 = CONFIG.BG2}) end)
+        b.MouseButton1Click:Connect(function()
+            tween(b, 0.08, {BackgroundColor3 = CONFIG.Accent})
+            task.wait(0.08)
+            tween(b, 0.12, {BackgroundColor3 = CONFIG.BG2})
+            if cb then pcall(cb) end
+        end)
+        return b
+    end
+
+    function Hub:AddToggle(page, text, default, cb)
+        local row = Instance.new("TextButton")
+        row.Size             = UDim2.new(1, 0, 0, 30)
+        row.BackgroundColor3 = CONFIG.BG2
+        row.Text             = ""
+        row.BorderSizePixel  = 0
+        row.AutoButtonColor  = false
+        row.Parent           = page
+        corner(row, 6)
+        stroke(row, CONFIG.Accent, 1, 0.85)
+
+        local label = Instance.new("TextLabel")
+        label.Size                   = UDim2.new(1, -60, 1, 0)
+        label.Position               = UDim2.new(0, 10, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Font                   = Enum.Font.GothamMedium
+        label.TextSize               = 13
+        label.TextColor3             = CONFIG.Text
+        label.TextXAlignment         = Enum.TextXAlignment.Left
+        label.Text                   = text
+        label.Parent                 = row
+
+        local track = Instance.new("Frame")
+        track.Size             = UDim2.fromOffset(36, 18)
+        track.Position         = UDim2.new(1, -46, 0.5, -9)
+        track.BackgroundColor3 = CONFIG.BG
+        track.BorderSizePixel  = 0
+        track.Parent           = row
+        corner(track, 9)
+        stroke(track, CONFIG.Accent, 1, 0.7)
+
+        local dot = Instance.new("Frame")
+        dot.Size             = UDim2.fromOffset(14, 14)
+        dot.Position         = UDim2.new(0, 2, 0.5, -7)
+        dot.BackgroundColor3 = CONFIG.SubText
+        dot.BorderSizePixel  = 0
+        dot.Parent           = track
+        corner(dot, 7)
+
+        local state = default and true or false
+        local function render()
+            tween(dot, 0.15, {
+                Position         = state and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7),
+                BackgroundColor3 = state and CONFIG.Accent or CONFIG.SubText
+            })
+            tween(track, 0.15, {
+                BackgroundColor3 = state and CONFIG.AccentDark or CONFIG.BG
+            })
+        end
+        render()
+
+        row.MouseButton1Click:Connect(function()
+            state = not state
+            render()
+            if cb then pcall(cb, state) end
+        end)
+        return { Set = function(v) state = v; render(); if cb then pcall(cb, state) end end }
+    end
+
+    function Hub:AddSlider(page, text, min, max, default, cb)
+        local frame = Instance.new("Frame")
+        frame.Size             = UDim2.new(1, 0, 0, 46)
+        frame.BackgroundColor3 = CONFIG.BG2
+        frame.BorderSizePixel  = 0
+        frame.Parent           = page
+        corner(frame, 6)
+        stroke(frame, CONFIG.Accent, 1, 0.85)
+
+        local label = Instance.new("TextLabel")
+        label.Size                   = UDim2.new(1, -20, 0, 18)
+        label.Position               = UDim2.new(0, 10, 0, 4)
+        label.BackgroundTransparency = 1
+        label.Font                   = Enum.Font.GothamMedium
+        label.TextSize               = 13
+        label.TextColor3             = CONFIG.Text
+        label.TextXAlignment         = Enum.TextXAlignment.Left
+        label.Text                   = text .. ": " .. tostring(default)
+        label.Parent                 = frame
+
+        local track = Instance.new("Frame")
+        track.Size             = UDim2.new(1, -20, 0, 6)
+        track.Position         = UDim2.new(0, 10, 0, 30)
+        track.BackgroundColor3 = CONFIG.BG
+        track.BorderSizePixel  = 0
+        track.Parent           = frame
+        corner(track, 3)
+
+        local fill = Instance.new("Frame")
+        fill.Size             = UDim2.new((default - min) / (max - min), 0, 1, 0)
+        fill.BackgroundColor3 = CONFIG.Accent
+        fill.BorderSizePixel  = 0
+        fill.Parent           = track
+        corner(fill, 3)
+        gradient(fill, CONFIG.Accent, Color3.fromRGB(180, 220, 255), 0)
+
+        local dragging = false
+        local function setFromX(x)
+            local rel = math.clamp((x - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+            local val = min + (max - min) * rel
+            val = math.floor(val + 0.5)
+            fill.Size  = UDim2.new(rel, 0, 1, 0)
+            label.Text = text .. ": " .. tostring(val)
+            if cb then pcall(cb, val) end
+        end
+
+        track.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                setFromX(input.Position.X)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+                          or input.UserInputType == Enum.UserInputType.Touch) then
+                setFromX(input.Position.X)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+        return { Set = function(v) setFromX(track.AbsolutePosition.X + (v - min) / (max - min) * track.AbsoluteSize.X) end }
+    end
+
+    function Hub:AddSection(page, text)
+        local l = Instance.new("TextLabel")
+        l.Size                   = UDim2.new(1, 0, 0, 22)
+        l.BackgroundTransparency = 1
+        l.Font                   = Enum.Font.GothamBold
+        l.TextSize               = 12
+        l.TextColor3             = CONFIG.Accent
+        l.TextXAlignment         = Enum.TextXAlignment.Left
+        l.Text                   = string.upper(text)
+        l.Parent                 = page
+        return l
+    end
+
+    function Hub:AddTextBox(page, placeholder)
+        local box = Instance.new("TextBox")
+        box.Size             = UDim2.new(1, 0, 0, 30)
+        box.BackgroundColor3 = CONFIG.BG2
+        box.BorderSizePixel  = 0
+        box.Font             = Enum.Font.Code
+        box.TextSize         = 12
+        box.TextColor3       = CONFIG.Text
+        box.PlaceholderText  = placeholder or ""
+        box.Text             = ""
+        box.ClearTextOnFocus = false
+        box.Parent           = page
+        corner(box, 6)
+        stroke(box, CONFIG.Accent, 1, 0.85)
+        return box
+    end
+
+    function Hub:AddLabel(page, text, height)
+        local l = Instance.new("TextLabel")
+        l.Size                   = UDim2.new(1, 0, 0, height or 20)
+        l.BackgroundTransparency = 1
+        l.Font                   = Enum.Font.Gotham
+        l.TextSize               = 12
+        l.TextColor3             = CONFIG.SubText
+        l.TextXAlignment         = Enum.TextXAlignment.Left
+        l.TextWrapped            = true
+        l.Text                   = text
+        l.Parent                 = page
+        return l
+    end
+
+    local dragging, dragStart, startPos
+    bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = win.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+                      or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta  = input.Position - dragStart
+            win.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == CONFIG.ToggleKey then
+            State.UiVisible = not State.UiVisible
+            if State.UiVisible then
+                win.Visible = true
+                tween(win, 0.2, {Size = UDim2.fromOffset(CONFIG.W, CONFIG.H)})
+            else
+                tween(win, 0.2, {Size = UDim2.fromOffset(CONFIG.W, 0)})
+                task.wait(0.2)
+                win.Visible = false
+            end
+        end
+    end)
+
+    return Hub
+end
+
+--=====================================================================
+-- SHARED MODULE HELPERS
+--=====================================================================
+local MOD = {}
+
+MOD.getHRP = function()
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+MOD.getHum = function()
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+MOD.getTool = function()
+    local c = LocalPlayer.Character
+    return c and c:FindFirstChildOfClass("Tool")
+end
+
+MOD.registry = { lastTp = 0, cooldown = 0.6, maxImpulse = 900 }
+
+MOD.physicsTP = function(targetCF)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    local now = tick()
+    local waitTime = MOD.registry.cooldown - (now - MOD.registry.lastTp)
+    if waitTime > 0 then task.wait(waitTime) end
+    MOD.registry.lastTp = tick()
+
+    local startPos = hrp.Position
+    local target   = targetCF.Position
+    local delta    = target - startPos
+    local dist     = delta.Magnitude
+    if dist < 2 then return end
+
+    local dir     = delta.Unit
+    local speed   = math.min(dist / 0.35, MOD.registry.maxImpulse)
+    local impulse = dir * speed + Vector3.new(0, 20, 0)
+
+    pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+    task.wait(0.08)
+    pcall(function()
+        hrp.AssemblyLinearVelocity  = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
+    task.wait(0.02)
+    pcall(function() hrp.AssemblyLinearVelocity = impulse end)
+
+    local travelTime = math.min(dist / speed, 0.6)
+    local t0 = tick()
+    while tick() - t0 < travelTime do
+        if not hrp.Parent then return end
+        RunService.Heartbeat:Wait()
+    end
+    pcall(function()
+        hrp.AssemblyLinearVelocity  = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
+--=====================================================================
+-- ARSENAL MODULE
+--=====================================================================
+local function buildArsenal(page, ctx)
+    local Hub = ctx.Hub
+
+    local AR = {
+        aimbot = false, aimKey = Enum.UserInputType.MouseButton2,
+        aimSmooth = 0.35, aimFOV = 120, aimPart = "Head",
+        aimVisible = true, aimTeamCheck = true, aimTarget = nil,
+        silentAim = false,
+        triggerBot = false, triggerDelay = 0.05,
+        espOn = true, espBoxes = true, espNames = true, espDistance = true,
+        espTracers = false, espHealth = true, espTeamCheck = false, espRange = 800,
+        espCache = {},
+        radarOn = false, radarRadius = 150,
+        noRecoil = false, noSpread = false, noSway = false,
+        infiniteAmmo = false, fastReload = false,
+        noFog = false, fullbright = false,
+        autoFire = false, autoFireDelay = 0.1,
+        hitSounds = false, antiAFK = true,
+        sessionStart = tick(), shotsFired = 0,
+        lastAction = "idle", debugLines = {},
+    }
+
+    local function arlog(m)
+        local t = os.date("%H:%M:%S")
+        table.insert(AR.debugLines, string.format("[%s] %s", t, m))
+        while #AR.debugLines > 12 do table.remove(AR.debugLines, 1) end
+    end
+
+    local function sameTeam(plr)
+        if not AR.aimTeamCheck then return false end
+        if not plr then return false end
+        if plr.Team and LocalPlayer.Team and plr.Team == LocalPlayer.Team then return true end
+        if plr.TeamColor and LocalPlayer.TeamColor and plr.TeamColor == LocalPlayer.TeamColor then return true end
+        return false
+    end
+
+    local function isVisible(part)
+        if not AR.aimVisible then return true end
+        local cam = Workspace.CurrentCamera
+        if not cam then return false end
+        local origin = cam.CFrame.Position
+        local dir = part.Position - origin
+        local ray = Ray.new(origin, dir)
+        local ignore = { LocalPlayer.Character, cam }
+        local hit = Workspace:FindPartOnRayWithIgnoreList(ray, ignore)
+        if not hit then return true end
+        return hit:IsDescendantOf(part.Parent) or hit == part
+    end
+
+    local function getAimPart(plr, partName)
+        local char = plr.Character
+        if not char then return nil end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return nil end
+        return char:FindFirstChild(partName) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function findTarget()
+        local cam = Workspace.CurrentCamera
+        if not cam then return nil end
+        local center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+        local best, bestDist = nil, AR.aimFOV
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and not sameTeam(plr) then
+                local part = getAimPart(plr, AR.aimPart)
+                if part then
+                    local sp, onScreen = cam:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+                        if dist < bestDist then
+                            if isVisible(part) then
+                                best = { player = plr, part = part, dist = dist }
+                                bestDist = dist
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    local function aimTick()
+        if not AR.aimbot then AR.aimTarget = nil; return end
+        if not UserInputService:IsMouseButtonPressed(AR.aimKey) then AR.aimTarget = nil; return end
+        local cam = Workspace.CurrentCamera
+        if not cam then return end
+        local target = findTarget()
+        if not target then return end
+        AR.aimTarget = target
+        local desired = CFrame.new(cam.CFrame.Position, target.part.Position)
+        local alpha = 1 - math.clamp(AR.aimSmooth, 0, 0.99)
+        cam.CFrame = cam.CFrame:Lerp(desired, alpha)
+    end
+
+    local lastTrigger = 0
+    local function triggerBotTick()
+        if not AR.triggerBot then return end
+        local now = tick()
+        if now - lastTrigger < AR.triggerDelay then return end
+        local cam = Workspace.CurrentCamera
+        if not cam then return end
+        local target = findTarget()
+        if not target then return end
+        lastTrigger = now
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(cam.ViewportSize.X/2, cam.ViewportSize.Y/2, 0, true, game, 1)
+            task.wait(0.02)
+            VirtualInputManager:SendMouseButtonEvent(cam.ViewportSize.X/2, cam.ViewportSize.Y/2, 0, false, game, 1)
+        end)
+        AR.shotsFired = AR.shotsFired + 1
+    end
+
+    local lastFire = 0
+    local function autoFireTick()
+        if not AR.autoFire then return end
+        if not AR.aimTarget then return end
+        local now = tick()
+        if now - lastFire < AR.autoFireDelay then return end
+        lastFire = now
+        pcall(function()
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            VirtualInputManager:SendMouseButtonEvent(cam.ViewportSize.X/2, cam.ViewportSize.Y/2, 0, true, game, 1)
+            task.wait(0.02)
+            VirtualInputManager:SendMouseButtonEvent(cam.ViewportSize.X/2, cam.ViewportSize.Y/2, 0, false, game, 1)
+        end)
+        AR.shotsFired = AR.shotsFired + 1
+    end
+
+    local HAS_DRAWING = (Drawing ~= nil)
+    local function new_drawing(class, props)
+        if not HAS_DRAWING then return nil end
+        local d = Drawing.new(class)
+        for k, v in pairs(props) do d[k] = v end
+        return d
+    end
+    local function espEntry(plr)
+        if AR.espCache[plr] then return AR.espCache[plr] end
+        if not HAS_DRAWING then return nil end
+        local e = {
+            box  = new_drawing("Square", { Thickness = 1, Filled = false, Transparency = 0.85, Color = CONFIG.TeamRed }),
+            name = new_drawing("Text", { Text = "", Size = 13, Center = true, Outline = true, Color = Color3.new(1,1,1), Font = 2 }),
+            dist = new_drawing("Text", { Text = "", Size = 11, Center = true, Outline = true, Color = Color3.new(1,1,1), Font = 2 }),
+            hp   = new_drawing("Text", { Text = "", Size = 11, Center = true, Outline = true, Color = CONFIG.Safe, Font = 2 }),
+        }
+        if AR.espTracers then
+            e.tracer = new_drawing("Line", { Thickness = 1, Transparency = 0.5, Color = CONFIG.TeamRed })
+        end
+        AR.espCache[plr] = e
+        return e
+    end
+    local function removeEntry(e)
+        if not e then return end
+        for _, o in pairs(e) do pcall(function() o:Remove() end) end
+    end
+    local function clearEsp()
+        for _, e in pairs(AR.espCache) do removeEntry(e) end
+        AR.espCache = {}
+    end
+    local function drawEsp(plr)
+        if not AR.espOn then return end
+        if plr == LocalPlayer then return end
+        if AR.espTeamCheck and sameTeam(plr) then
+            if AR.espCache[plr] then removeEntry(AR.espCache[plr]); AR.espCache[plr] = nil end
+            return
+        end
+        local char = plr.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then return end
+        local myHrp = MOD.getHRP()
+        if not myHrp then return end
+        local dist = (hrp.Position - myHrp.Position).Magnitude
+        if dist > AR.espRange then return end
+        local cam = Workspace.CurrentCamera
+        if not cam then return end
+        local sp, onScreen = cam:WorldToViewportPoint(hrp.Position)
+        if not onScreen then return end
+        local e = espEntry(plr)
+        if not e then return end
+        local scale = 1 / math.max(dist, 1) * 500
+        local w = math.max(8, 3 * scale * 0.5)
+        local h = math.max(12, 5 * scale * 0.5)
+        local color = sameTeam(plr) and CONFIG.TeamBlue or CONFIG.TeamRed
+        e.box.Visible = AR.espBoxes
+        e.box.Color = color
+        e.box.Size = Vector2.new(w, h)
+        e.box.Position = Vector2.new(sp.X - w/2, sp.Y - h/2)
+        e.name.Visible = AR.espNames
+        e.name.Position = Vector2.new(sp.X, sp.Y - h/2 - 16)
+        e.name.Text = plr.Name
+        e.dist.Visible = AR.espDistance
+        e.dist.Position = Vector2.new(sp.X, sp.Y + h/2 + 2)
+        e.dist.Text = string.format("%dm", math.floor(dist))
+        e.hp.Visible = AR.espHealth
+        e.hp.Position = Vector2.new(sp.X, sp.Y + h/2 + 16)
+        e.hp.Text = string.format("%d HP", math.floor(hum.Health))
+        if e.tracer then
+            e.tracer.Visible = AR.espTracers
+            e.tracer.From = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
+            e.tracer.To = Vector2.new(sp.X, sp.Y + h/2)
+            e.tracer.Color = color
+        end
+    end
+
+    local radarGui, radarFrame = nil, nil
+    local radarDots = {}
+    local function buildRadar()
+        if radarGui then return end
+        radarGui = Instance.new("ScreenGui")
+        radarGui.Name = "AXION_RADAR_" .. tostring(math.random(1e6))
+        radarGui.ResetOnSpawn = false
+        radarGui.IgnoreGuiInset = true
+        radarGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        radarGui.Parent = getGuiParent()
+        radarFrame = Instance.new("Frame")
+        radarFrame.Size = UDim2.fromOffset(AR.radarRadius * 2, AR.radarRadius * 2)
+        radarFrame.Position = UDim2.new(0, 20, 1, -(AR.radarRadius * 2) - 20)
+        radarFrame.BackgroundColor3 = CONFIG.BG
+        radarFrame.BackgroundTransparency = 0.25
+        radarFrame.BorderSizePixel = 0
+        radarFrame.Parent = radarGui
+        corner(radarFrame, AR.radarRadius)
+        stroke(radarFrame, CONFIG.Accent, 1, 0.3)
+    end
+    local function destroyRadar()
+        if radarGui then radarGui:Destroy(); radarGui = nil; radarFrame = nil; radarDots = {} end
+    end
+    local function radarTick()
+        if not AR.radarOn then return end
+        if not radarGui then buildRadar() end
+        if not radarFrame then return end
+        local myHrp = MOD.getHRP()
+        if not myHrp then return end
+        local cam = Workspace.CurrentCamera
+        if not cam then return end
+        local camYaw = math.atan2(cam.CFrame.LookVector.X, cam.CFrame.LookVector.Z)
+        for plr, dot in pairs(radarDots) do
+            if not plr.Parent or not plr.Character then
+                dot:Destroy(); radarDots[plr] = nil
+            end
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local delta = hrp.Position - myHrp.Position
+                    local rel = Vector2.new(delta.X, delta.Z)
+                    local d = rel.Magnitude
+                    if d < AR.radarRadius * 2 then
+                        local ang = math.atan2(rel.X, rel.Y)
+                        local rot = ang - camYaw
+                        local px = math.sin(rot) * d
+                        local pz = math.cos(rot) * d
+                        local dot = radarDots[plr]
+                        if not dot then
+                            dot = Instance.new("Frame")
+                            dot.Size = UDim2.fromOffset(6, 6)
+                            dot.BackgroundColor3 = CONFIG.TeamRed
+                            dot.BorderSizePixel = 0
+                            dot.Parent = radarFrame
+                            corner(dot, 3)
+                            radarDots[plr] = dot
+                        end
+                        dot.Visible = true
+                        dot.BackgroundColor3 = sameTeam(plr) and CONFIG.TeamBlue or CONFIG.TeamRed
+                        dot.Position = UDim2.fromOffset(
+                            AR.radarRadius + px - 3,
+                            AR.radarRadius + pz - 3
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    local hookedTools = {}
+    local function applyWeaponMods(tool)
+        if not tool or not tool:IsA("Tool") then return end
+        if hookedTools[tool] then return end
+        hookedTools[tool] = true
+
+        local function zeroValue(v)
+            if v and (v:IsA("NumberValue") or v:IsA("IntValue")) then
+                if v.Name:find("Ammo") or v.Name:find("Clip") then
+                    if AR.infiniteAmmo then
+                        task.spawn(function()
+                            while tool.Parent and AR.infiniteAmmo do
+                                pcall(function() v.Value = 9999 end)
+                                task.wait(0.5)
+                            end
+                        end)
+                    end
+                elseif v.Name:find("Recoil") or v.Name:find("Spread") or v.Name:find("Sway") then
+                    pcall(function() v.Value = 0 end)
+                elseif v.Name:find("Reload") and AR.fastReload then
+                    pcall(function() v.Value = 0.01 end)
+                end
+            end
+        end
+
+        for _, d in ipairs(tool:GetDescendants()) do
+            if d:IsA("NumberValue") or d:IsA("IntValue") then
+                zeroValue(d)
+            end
+        end
+        tool.ChildAdded:Connect(function(child)
+            if child:IsA("NumberValue") or child:IsA("IntValue") then
+                zeroValue(child)
+            end
+        end)
+    end
+
+    local function onCharacter(char)
+        char.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then
+                applyWeaponMods(child)
+                arlog("tool equipped: " .. child.Name)
+            end
+        end)
+        for _, child in ipairs(char:GetChildren()) do
+            if child:IsA("Tool") then applyWeaponMods(child) end
+        end
+    end
+    if LocalPlayer.Character then onCharacter(LocalPlayer.Character) end
+    LocalPlayer.CharacterAdded:Connect(onCharacter)
+
+    local savedLight = nil
+    local function setLight(on, mode)
+        if on then
+            if not savedLight then
+                savedLight = {
+                    Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+                    Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime,
+                    FogEnd = Lighting.FogEnd, FogStart = Lighting.FogStart,
+                }
+            end
+            if mode == "fullbright" then
+                Lighting.Ambient = Color3.fromRGB(178,178,178)
+                Lighting.OutdoorAmbient = Color3.fromRGB(178,178,178)
+                Lighting.Brightness = 3
+                Lighting.ClockTime = 14
+                Lighting.FogEnd = 1e6
+            elseif mode == "nofog" then
+                Lighting.FogEnd = 1e6
+                Lighting.FogStart = 1e6
+            end
+        elseif savedLight then
+            for k, v in pairs(savedLight) do pcall(function() Lighting[k] = v end) end
+            savedLight = nil
+        end
+    end
+
+    Hub:AddSection(page, "Aimbot")
+    Hub:AddToggle(page, "Aimbot (hold Right Mouse)", false, function(on)
+        AR.aimbot = on
+        arlog("aimbot " .. (on and "on" or "off"))
+    end)
+    Hub:AddSlider(page, "Aimbot FOV (px)", 20, 600, 120, function(v) AR.aimFOV = v end)
+    Hub:AddSlider(page, "Aimbot smooth (x100)", 0, 90, 35, function(v) AR.aimSmooth = v / 100 end)
+    Hub:AddToggle(page, "Visibility check (no walls)", true, function(on) AR.aimVisible = on end)
+    Hub:AddToggle(page, "Team check", true, function(on) AR.aimTeamCheck = on end)
+    Hub:AddButton(page, "Aim part: Head", function() AR.aimPart = "Head"; arlog("aim part: Head") end)
+    Hub:AddButton(page, "Aim part: HumanoidRootPart", function() AR.aimPart = "HumanoidRootPart"; arlog("aim part: HRP") end)
+    Hub:AddButton(page, "Aim part: UpperTorso", function() AR.aimPart = "UpperTorso"; arlog("aim part: UpperTorso") end)
+
+    Hub:AddSection(page, "Silent aim / trigger")
+    Hub:AddToggle(page, "Silent aim (camera redirect)", false, function(on)
+        AR.silentAim = on
+        arlog("silent aim " .. (on and "on" or "off"))
+    end)
+    Hub:AddToggle(page, "Trigger bot (auto-fire on target)", false, function(on)
+        AR.triggerBot = on
+    end)
+    Hub:AddSlider(page, "Trigger delay (x10 ms)", 1, 50, 5, function(v) AR.triggerDelay = v / 10 end)
+
+    Hub:AddSection(page, "Auto-fire")
+    Hub:AddToggle(page, "Auto-fire when aiming", false, function(on) AR.autoFire = on end)
+    Hub:AddSlider(page, "Fire interval (x100 s)", 1, 50, 10, function(v) AR.autoFireDelay = v / 100 end)
+
+    Hub:AddSection(page, "ESP")
+    Hub:AddToggle(page, "Master ESP", true, function(on)
+        AR.espOn = on
+        if not on then clearEsp() end
+    end)
+    Hub:AddToggle(page, "Boxes", true, function(on) AR.espBoxes = on end)
+    Hub:AddToggle(page, "Names", true, function(on) AR.espNames = on end)
+    Hub:AddToggle(page, "Distance", true, function(on) AR.espDistance = on end)
+    Hub:AddToggle(page, "Health", true, function(on) AR.espHealth = on end)
+    Hub:AddToggle(page, "Tracers", false, function(on)
+        AR.espTracers = on
+        clearEsp()
+    end)
+    Hub:AddToggle(page, "Team-only ESP", false, function(on) AR.espTeamCheck = on end)
+    Hub:AddSlider(page, "ESP range", 50, 2000, 800, function(v) AR.espRange = v end)
+
+    Hub:AddSection(page, "Radar")
+    Hub:AddToggle(page, "Radar (bottom-left)", false, function(on)
+        AR.radarOn = on
+        if not on then destroyRadar() end
+    end)
+    Hub:AddSlider(page, "Radar radius (px)", 60, 250, 150, function(v)
+        AR.radarRadius = v
+        if radarFrame then
+            radarFrame.Size = UDim2.fromOffset(v * 2, v * 2)
+            radarFrame.Position = UDim2.new(0, 20, 1, -(v * 2) - 20)
+        end
+    end)
+
+    Hub:AddSection(page, "Weapon mods")
+    Hub:AddToggle(page, "No recoil", false, function(on) AR.noRecoil = on end)
+    Hub:AddToggle(page, "No spread", false, function(on) AR.noSpread = on end)
+    Hub:AddToggle(page, "No sway", false, function(on) AR.noSway = on end)
+    Hub:AddToggle(page, "Infinite ammo", false, function(on)
+        AR.infiniteAmmo = on
+        if on and LocalPlayer.Character then
+            for _, tool in ipairs(LocalPlayer.Character:GetChildren()) do
+                if tool:IsA("Tool") then applyWeaponMods(tool) end
+            end
+        end
+    end)
+    Hub:AddToggle(page, "Fast reload", false, function(on)
+        AR.fastReload = on
+        if on and LocalPlayer.Character then
+            for _, tool in ipairs(LocalPlayer.Character:GetChildren()) do
+                if tool:IsA("Tool") then applyWeaponMods(tool) end
+            end
+        end
+    end)
+
+    Hub:AddSection(page, "Visual / misc")
+    Hub:AddToggle(page, "Fullbright", false, function(on)
+        AR.fullbright = on
+        setLight(on, "fullbright")
+    end)
+    Hub:AddToggle(page, "Remove fog", false, function(on)
+        AR.noFog = on
+        setLight(on, "nofog")
+    end)
+    Hub:AddToggle(page, "Hit sounds", false, function(on) AR.hitSounds = on end)
+    Hub:AddToggle(page, "Anti-AFK", true, function(on)
+        AR.antiAFK = on
+        if State.Conn.arAfk then State.Conn.arAfk:Disconnect(); State.Conn.arAfk = nil end
+        if not on then return end
+        State.Conn.arAfk = LocalPlayer.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    end)
+
+    Hub:AddSection(page, "Session")
+    local statLbl = Instance.new("TextLabel")
+    statLbl.Size = UDim2.new(1, 0, 0, 120); statLbl.BackgroundColor3 = CONFIG.BG2; statLbl.BorderSizePixel = 0
+    statLbl.TextColor3 = CONFIG.Text; statLbl.Font = Enum.Font.Code; statLbl.TextSize = 11
+    statLbl.TextXAlignment = Enum.TextXAlignment.Left; statLbl.TextYAlignment = Enum.TextYAlignment.Top
+    statLbl.TextWrapped = true; statLbl.Text = "  session: loading..."; statLbl.Parent = page
+    corner(statLbl, 6)
+    local sp = Instance.new("UIPadding"); sp.PaddingTop = UDim.new(0, 6); sp.PaddingLeft = UDim.new(0, 8); sp.Parent = statLbl
+
+    Hub:AddSection(page, "Debug")
+    local debugLbl = Instance.new("TextLabel")
+    debugLbl.Size = UDim2.new(1, 0, 0, 120); debugLbl.BackgroundColor3 = CONFIG.BG2; debugLbl.BorderSizePixel = 0
+    debugLbl.TextColor3 = CONFIG.SubText; debugLbl.Font = Enum.Font.Code; debugLbl.TextSize = 10
+    debugLbl.TextXAlignment = Enum.TextXAlignment.Left; debugLbl.TextYAlignment = Enum.TextYAlignment.Top
+    debugLbl.TextWrapped = true; debugLbl.Text = "  debug: ready"; debugLbl.Parent = page
+    corner(debugLbl, 6)
+    local dp = Instance.new("UIPadding"); dp.PaddingTop = UDim.new(0, 6); dp.PaddingLeft = UDim.new(0, 8); dp.Parent = debugLbl
+
+    State.Conn.arHeartbeat = RunService.RenderStepped:Connect(function()
+        pcall(aimTick)
+        pcall(triggerBotTick)
+        pcall(autoFireTick)
+        if AR.espOn then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then pcall(drawEsp, plr) end
+            end
+        end
+        for plr, e in pairs(AR.espCache) do
+            if not plr.Parent or not plr.Character then
+                removeEntry(e); AR.espCache[plr] = nil
+            end
+        end
+        pcall(radarTick)
+    end)
+
+    State.Conn.arStats = task.spawn(function()
+        while State.Conn.arHeartbeat do
+            local elapsed = tick() - AR.sessionStart
+            local mins = math.floor(elapsed / 60); local secs = math.floor(elapsed % 60)
+            local ping = 0
+            pcall(function() ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+            local targetName = AR.aimTarget and AR.aimTarget.player.Name or "none"
+            statLbl.Text = string.format(
+                "  session: %02d:%02d  ping: %.0fms\n  target: %s\n  shots: %d\n  aimbot: %s  silent: %s\n  trigger: %s  autofire: %s\n  esp: %s  radar: %s",
+                mins, secs, ping, targetName, AR.shotsFired,
+                tostring(AR.aimbot), tostring(AR.silentAim),
+                tostring(AR.triggerBot), tostring(AR.autoFire),
+                tostring(AR.espOn), tostring(AR.radarOn))
+            debugLbl.Text = #AR.debugLines > 0 and table.concat(AR.debugLines, "\n") or "  debug: ready"
+            task.wait(0.5)
+        end
+    end)
+
+    State.Conn.arKeys = UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.RightControl then
+            AR.aimbot = not AR.aimbot
+            arlog("aimbot " .. (AR.aimbot and "on" or "off") .. " via key")
+        elseif input.KeyCode == Enum.KeyCode.RightAlt then
+            AR.espOn = not AR.espOn
+            if not AR.espOn then clearEsp() end
+            arlog("esp " .. (AR.espOn and "on" or "off") .. " via key")
+        end
+    end)
+end
+GAMES["Arsenal"].Build = buildArsenal
+
+--=====================================================================
+-- JAILBREAK MODULE
+--=====================================================================
+local function buildJailbreak(page, ctx)
+    local Hub = ctx.Hub
+    local JB = { autoRob = false, tpMode = "velocity" }
+    local CAPS = { WalkSpeed = 32, JumpPower = 75 }
+
+    local walkTP = function(cf)
+        local hum = MOD.getHum(); if not hum then return end
+        hum:MoveTo(cf.Position); task.wait(0.1)
+        pcall(function() hum.MoveToFinished:Wait() end)
+    end
+    local callTP = function(cf)
+        if JB.tpMode == "walk" then walkTP(cf) else MOD.physicsTP(cf) end
+    end
+
+    Hub:AddSection(page, "Movement")
+    Hub:AddSlider(page, "WalkSpeed (cap ≤32)", 16, CAPS.WalkSpeed, 16, function(v)
+        local hum = MOD.getHum(); if hum then hum.WalkSpeed = v end
+    end)
+    Hub:AddSlider(page, "JumpPower (cap ≤75)", 50, CAPS.JumpPower, 50, function(v)
+        local hum = MOD.getHum(); if hum then hum.UseJumpPower = true; hum.JumpPower = v end
+    end)
+    Hub:AddToggle(page, "Infinite jump (airborne only)", false, function(on)
+        if State.Conn.jbInfJump then State.Conn.jbInfJump:Disconnect(); State.Conn.jbInfJump = nil end
+        if not on then return end
+        State.Conn.jbInfJump = UserInputService.JumpRequest:Connect(function()
+            local hum = MOD.getHum()
+            if hum and hum.FloorMaterial == Enum.Material.Air then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end)
+    Hub:AddButton(page, "Reset character", function()
+        local hum = MOD.getHum(); if hum then hum.Health = 0 end
+    end)
+
+    Hub:AddSection(page, "TP mode")
+    Hub:AddButton(page, "velocity", function() JB.tpMode = "velocity" end)
+    Hub:AddButton(page, "walk", function() JB.tpMode = "walk" end)
+
+    Hub:AddSection(page, "Teleports")
+    local locations = {
+        ["Bank"]          = CFrame.new(-42, 22, -757),
+        ["Jewelry Store"] = CFrame.new(-467, 24, -461),
+        ["Police HQ"]     = CFrame.new(-4, 24, -683),
+        ["Gun Shop"]      = CFrame.new(258, 24, -86),
+        ["Airport"]       = CFrame.new(-893, 22, -232),
+        ["Train Station"] = CFrame.new(-573, 22, -135),
+        ["Prison Yard"]   = CFrame.new(1961, 22, -566),
+        ["Cargo Port"]    = CFrame.new(-798, 22, -54),
+        ["Donut Shop"]    = CFrame.new(-181, 24, -302),
+        ["Museum"]        = CFrame.new(-1036, 22, 82),
+    }
+    for name, cf in pairs(locations) do
+        Hub:AddButton(page, "TP → " .. name, function() callTP(cf) end)
+    end
+
+    Hub:AddSection(page, "Auto")
+    Hub:AddToggle(page, "Auto-rob registers", false, function(on)
+        JB.autoRob = on
+        if State.Conn.jbAutoRob then pcall(function() State.Conn.jbAutoRob:Disconnect() end); State.Conn.jbAutoRob = nil end
+        if not on then return end
+        State.Conn.jbAutoRob = task.spawn(function()
+            while JB.autoRob do
+                pcall(function()
+                    local hrp = MOD.getHRP(); if not hrp then return end
+                    for _, obj in ipairs(Workspace:GetDescendants()) do
+                        if obj:IsA("ProximityPrompt") and obj.ActionText:lower():find("rob") then
+                            local part = obj.Parent
+                            if part and part:IsA("BasePart") and (part.Position - hrp.Position).Magnitude < 12 then
+                                if fireproximityprompt then fireproximityprompt(obj) end
+                            end
+                        end
+                    end
+                end)
+                task.wait(0.35)
+            end
+        end)
+    end)
+end
+GAMES["Jailbreak"].Build = buildJailbreak
+
+--=====================================================================
+-- DOORS MODULE
+--=====================================================================
+local function buildDoors(page, ctx)
+    local Hub = ctx.Hub
+    local DR = {
+        espOn = true, espEntities = true, espItems = true, espInteractives = true,
+        espNames = true, espDistance = true, espRange = 500,
+        autoInteract = false, interactRange = 12, interactInterval = 0.4,
+        autoHide = false,
+        fullbright = false, noclip = false, infiniteJump = false,
+        sessionStart = tick(), lastInteract = 0, lastScan = 0,
+        roomCount = 0, currentRoom = "?", roomsSeen = {},
+        entityWarnings = 0, interactions = 0,
+        entitySet = {}, itemSet = {}, espCache = {},
+    }
+    local ENTITY_NAMES = { "Rush","Ambush","Eyes","Screech","Dupe","Hide","Jack","Shadow","Timothy","Snare","Glitch","Seek","Figure","Halt","Window","Void","Guiding Light","El Goblino" }
+    local ITEM_NAMES   = { "Key","Lockpick","Candle","Lighter","Vitamins","Crucifix","Flashlight","Battery","Bandage","Skeleton Key","Gold Key","Room Key","Door Key","Skull Key" }
+    local INTERACT_NAMES = { "Door","Lever","Button","Drawer","Cabinet","Chest","Painting","Note","Paper","Code","Safe","Switch" }
+
+    local function name_contains(name, list)
+        local n = name:lower()
+        for _, v in ipairs(list) do if n:find(v:lower(), 1, true) then return true end end
+        return false
+    end
+    local function classify(inst)
+        if not inst then return nil end
+        local n = inst.Name
+        if name_contains(n, ENTITY_NAMES)   then return "entity" end
+        if name_contains(n, ITEM_NAMES)     then return "item" end
+        if name_contains(n, INTERACT_NAMES) then return "interactive" end
+        return nil
+    end
+    local function get_pos(inst)
+        if not inst then return nil end
+        if inst:IsA("BasePart") then return inst.Position end
+        if inst:IsA("Model") then
+            local p = inst.PrimaryPart; if p then return p.Position end
+            for _, d in ipairs(inst:GetDescendants()) do if d:IsA("BasePart") then return d.Position end end
+        end
+        return nil
+    end
+    local function get_size(inst)
+        if not inst then return Vector3.new(3,3,3) end
+        if inst:IsA("BasePart") then return inst.Size end
+        if inst:IsA("Model") then
+            local ok, _, size = pcall(function() return inst:GetBoundingBox() end)
+            if ok and size then return size end
+        end
+        return Vector3.new(3,3,3)
+    end
+    local HAS_DRAWING = (Drawing ~= nil)
+    local function new_drawing(class, props)
+        if not HAS_DRAWING then return nil end
+        local d = Drawing.new(class)
+        for k, v in pairs(props) do d[k] = v end
+        return d
+    end
+    local function esp_entry(inst, tag)
+        if DR.espCache[inst] then return DR.espCache[inst] end
+        if not HAS_DRAWING then return nil end
+        local color = CONFIG.Accent
+        if tag == "entity" then color = CONFIG.Danger
+        elseif tag == "item" then color = CONFIG.Safe
+        elseif tag == "interactive" then color = CONFIG.Warn end
+        local e = {
+            box  = new_drawing("Square", { Thickness = 1, Color = color, Filled = false, Transparency = 0.9 }),
+            name = new_drawing("Text", { Text = "", Size = 13, Center = true, Outline = true, Color = Color3.new(1,1,1), Font = 2 }),
+            dist = new_drawing("Text", { Text = "", Size = 11, Center = true, Outline = true, Color = color, Font = 2 }),
+        }
+        DR.espCache[inst] = e
+        return e
+    end
+    local function hide_entry(e)
+        if not e then return end
+        for _, o in pairs(e) do pcall(function() o.Visible = false end) end
+    end
+    local function remove_entry(e)
+        if not e then return end
+        for _, o in pairs(e) do pcall(function() o:Remove() end) end
+    end
+    local function clear_esp()
+        for _, e in pairs(DR.espCache) do remove_entry(e) end
+        DR.espCache = {}
+    end
+    local function draw_esp(inst, tag)
+        if not DR.espOn then return end
+        if tag == "entity" and not DR.espEntities then hide_entry(DR.espCache[inst]); return end
+        if tag == "item" and not DR.espItems then hide_entry(DR.espCache[inst]); return end
+        if tag == "interactive" and not DR.espInteractives then hide_entry(DR.espCache[inst]); return end
+        local pos = get_pos(inst); local hrp = MOD.getHRP()
+        if not pos or not hrp then return end
+        local dist = (pos - hrp.Position).Magnitude
+        if dist > DR.espRange then hide_entry(DR.espCache[inst]); return end
+        local cam = Workspace.CurrentCamera; if not cam then return end
+        local sp, on_screen = cam:WorldToViewportPoint(pos)
+        if not on_screen then hide_entry(DR.espCache[inst]); return end
+        local e = esp_entry(inst, tag); if not e then return end
+        local size = get_size(inst)
+        local scale = 1 / math.max(dist, 1) * 500
+        local w = math.max(8, size.X * scale * 0.5)
+        local h = math.max(12, size.Y * scale * 0.5)
+        e.box.Visible = true; e.box.Size = Vector2.new(w, h)
+        e.box.Position = Vector2.new(sp.X - w/2, sp.Y - h/2)
+        e.name.Visible = DR.espNames
+        e.name.Position = Vector2.new(sp.X, sp.Y - h/2 - 16)
+        e.name.Text = inst.Name
+        e.dist.Visible = DR.espDistance
+        e.dist.Position = Vector2.new(sp.X, sp.Y + h/2 + 2)
+        e.dist.Text = string.format("%dm", math.floor(dist))
+    end
+    local function scan_world()
+        local char = LocalPlayer.Character
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            if inst:IsA("BasePart") or inst:IsA("Model") or inst:IsA("Folder") then
+                if not (char and inst:IsDescendantOf(char)) then
+                    local tag = classify(inst)
+                    if tag then
+                        if tag == "entity" then DR.entitySet[inst] = true
+                        elseif tag == "item" then DR.itemSet[inst] = true end
+                        if DR.espOn then pcall(draw_esp, inst, tag) end
+                    end
+                end
+            end
+        end
+    end
+    local function nearest_entity()
+        local hrp = MOD.getHRP(); if not hrp then return nil, math.huge end
+        local best, bestd = nil, math.huge
+        for inst, _ in pairs(DR.entitySet) do
+            if inst and inst.Parent then
+                local p = get_pos(inst)
+                if p then
+                    local d = (p - hrp.Position).Magnitude
+                    if d < bestd then best, bestd = inst, d end
+                end
+            end
+        end
+        return best, bestd
+    end
+    local function try_fire_prompt(prompt)
+        if not prompt or not prompt:IsA("ProximityPrompt") then return false end
+        local hold = prompt.HoldDuration or 0
+        local ok = pcall(function()
+            prompt:InputHoldBegin(); task.wait(hold + 0.15); prompt:InputHoldEnd()
+        end)
+        if ok then DR.interactions = DR.interactions + 1 end
+        return ok
+    end
+    local function auto_interact_tick()
+        if not DR.autoInteract then return end
+        local hrp = MOD.getHRP(); if not hrp then return end
+        local now = tick(); if now - DR.lastInteract < DR.interactInterval then return end
+        DR.lastInteract = now
+        local best, bestd = nil, DR.interactRange
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            if inst:IsA("ProximityPrompt") and inst.Enabled then
+                local p = get_pos(inst.Parent)
+                if p then
+                    local d = (p - hrp.Position).Magnitude
+                    if d < bestd then best, bestd = inst, d end
+                end
+            end
+        end
+        if best then try_fire_prompt(best) end
+    end
+    local function scan_rooms()
+        local now = tick(); if now - DR.lastScan < 2.0 then return end
+        DR.lastScan = now
+        local highest = 0
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            if inst:IsA("Model") or inst:IsA("BasePart") then
+                local num = tonumber(inst.Name:match("(%d+)"))
+                if num and num > highest and num < 1000 then highest = num end
+            end
+        end
+        if highest > 0 and not DR.roomsSeen[highest] then
+            DR.roomsSeen[highest] = true
+            DR.roomCount = DR.roomCount + 1
+            DR.currentRoom = tostring(highest)
+        end
+    end
+    local savedLight = nil
+    local function set_fullbright(on)
+        if on then
+            if not savedLight then
+                savedLight = { Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+                    Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd }
+            end
+            Lighting.Ambient = Color3.fromRGB(180,180,180); Lighting.OutdoorAmbient = Color3.fromRGB(180,180,180)
+            Lighting.Brightness = 3; Lighting.ClockTime = 14; Lighting.FogEnd = 1e6
+        elseif savedLight then
+            for k, v in pairs(savedLight) do pcall(function() Lighting[k] = v end) end
+            savedLight = nil
+        end
+    end
+
+    Hub:AddSection(page, "ESP")
+    Hub:AddToggle(page, "Master ESP", true, function(on) DR.espOn = on; if not on then clear_esp() end end)
+    Hub:AddToggle(page, "Entities", true, function(on) DR.espEntities = on end)
+    Hub:AddToggle(page, "Items", true, function(on) DR.espItems = on end)
+    Hub:AddToggle(page, "Interactives", true, function(on) DR.espInteractives = on end)
+    Hub:AddToggle(page, "Names + distance", true, function(on) DR.espNames = on; DR.espDistance = on end)
+    Hub:AddSlider(page, "ESP range", 50, 1000, 500, function(v) DR.espRange = v end)
+
+    Hub:AddSection(page, "Automation")
+    Hub:AddToggle(page, "Auto-interact prompts", false, function(on) DR.autoInteract = on end)
+    Hub:AddToggle(page, "Auto-hide on warning", false, function(on) DR.autoHide = on end)
+    Hub:AddSlider(page, "Interact range", 5, 30, 12, function(v) DR.interactRange = v end)
+
+    Hub:AddSection(page, "Movement")
+    Hub:AddToggle(page, "Noclip", false, function(on) DR.noclip = on end)
+    Hub:AddToggle(page, "Infinite jump", false, function(on) DR.infiniteJump = on end)
+    Hub:AddToggle(page, "Fullbright", false, function(on) DR.fullbright = on; set_fullbright(on) end)
+    Hub:AddSlider(page, "WalkSpeed", 16, 120, 20, function(v)
+        local hum = MOD.getHum(); if hum then hum.WalkSpeed = v end
+    end)
+
+    Hub:AddSection(page, "Session")
+    local statLbl = Instance.new("TextLabel")
+    statLbl.Size = UDim2.new(1, 0, 0, 100); statLbl.BackgroundColor3 = CONFIG.BG2; statLbl.BorderSizePixel = 0
+    statLbl.TextColor3 = CONFIG.Text; statLbl.Font = Enum.Font.Code; statLbl.TextSize = 11
+    statLbl.TextXAlignment = Enum.TextXAlignment.Left; statLbl.TextYAlignment = Enum.TextYAlignment.Top
+    statLbl.TextWrapped = true; statLbl.Text = "  session: loading..."; statLbl.Parent = page
+    corner(statLbl, 6)
+    local sp = Instance.new("UIPadding"); sp.PaddingTop = UDim.new(0, 6); sp.PaddingLeft = UDim.new(0, 8); sp.Parent = statLbl
+
+    Hub:AddButton(page, "Clear ESP cache", function() clear_esp() end)
+
+    State.Conn.doorsHeartbeat = RunService.Heartbeat:Connect(function()
+        pcall(scan_world); pcall(auto_interact_tick); pcall(scan_rooms)
+        if DR.noclip then
+            local c = LocalPlayer.Character
+            if c then for _, p in ipairs(c:GetDescendants()) do
+                if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+            end end
+        end
+        if DR.infiniteJump then
+            local hum = MOD.getHum()
+            if hum and hum:GetState() == Enum.HumanoidStateType.Freefall then
+                pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+            end
+        end
+        for inst, entry in pairs(DR.espCache) do
+            if not inst or not inst.Parent then remove_entry(entry); DR.espCache[inst] = nil end
+        end
+    end)
+    State.Conn.doorsStats = task.spawn(function()
+        while State.Conn.doorsHeartbeat do
+            local elapsed = tick() - DR.sessionStart
+            local mins = math.floor(elapsed / 60); local secs = math.floor(elapsed % 60)
+            local entC, itmC = 0, 0
+            for i in pairs(DR.entitySet) do if i and i.Parent then entC = entC + 1 end end
+            for i in pairs(DR.itemSet) do if i and i.Parent then itmC = itmC + 1 end end
+            statLbl.Text = string.format("  session: %02d:%02d\n  rooms: %d  current: %s\n  warnings: %d  interactions: %d\n  entities: %d  items: %d",
+                mins, secs, DR.roomCount, DR.currentRoom, DR.entityWarnings, DR.interactions, entC, itmC)
+            task.wait(0.5)
+        end
+    end)
+end
+GAMES["Doors"].Build = buildDoors
+
+--=====================================================================
+-- BLOX FRUITS MODULE
+--=====================================================================
+local function buildBloxFruits(page, ctx)
+    local Hub = ctx.Hub
+    local BF = {
+        autoFarm = false, farmRange = 30, farmTarget = nil,
+        autoAttack = false, attackRange = 20, attackInterval = 0.5,
+        autoSkillZ = false, autoSkillX = false, autoSkillC = false, autoSkillV = false, autoSkillF = false,
+        autoFruit = false, fruitRange = 500, autoChest = false, chestRange = 300, autoBerry = false, berryRange = 150,
+        espChests = true, espFruits = true, espBerries = false, espEnemies = false, espBosses = false,
+        espRange = 500, fullbright = false,
+        sessionStart = tick(), fruitsCollected = 0, chestsOpened = 0, berriesCollected = 0, kills = 0,
+        lastCollect = 0, lastAttack = 0, espCache = {}, chestSet = {}, fruitSet = {}, berrySet = {}, enemySet = {},
+    }
+    local LOCATIONS = {
+        ["Spawn (First Sea)"]  = CFrame.new(0, 5, 0),
+        ["Marine Fortress"]    = CFrame.new(-2475, 20, 3750),
+        ["Skylands"]           = CFrame.new(-4854, 720, -2555),
+        ["Ice Castle"]         = CFrame.new(-1157, 20, -5888),
+        ["Prison"]             = CFrame.new(5319, 20, 815),
+        ["Colosseum"]          = CFrame.new(-1510, 20, -3022),
+        ["Underwater City"]    = CFrame.new(4568, 20, -3106),
+        ["Fishman Island"]     = CFrame.new(-1070, 55, -1250),
+        ["Haunted Castle"]     = CFrame.new(-9536, 20, -5284),
+        ["Cursed Ship"]        = CFrame.new(9060, 20, -14580),
+        ["New World Spawn"]    = CFrame.new(-11631, 20, 1111),
+        ["Hydra Island"]       = CFrame.new(-1872, 20, -3225),
+        ["Great Tree"]         = CFrame.new(-7, 20, 131),
+        ["Kitsune Island"]     = CFrame.new(-1756, 20, -2653),
+        ["Castle on the Sea"]  = CFrame.new(-6387, 20, -3130),
+    }
+    local function isEnemy(model)
+        if not model or not model:IsA("Model") then return false end
+        local hum = model:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return false end
+        if model == LocalPlayer.Character then return false end
+        if Players:GetPlayerFromCharacter(model) then return false end
+        return true
+    end
+    local function isBoss(model)
+        if not isEnemy(model) then return false end
+        local n = model.Name:lower()
+        return n:find("boss") or n:find("captain") or n:find("lord") or n:find("king") or n:find("admiral") or n:find("warlord")
+    end
+    local function isChest(inst)
+        if not inst then return false end
+        local n = inst.Name:lower()
+        return n:find("chest") or n:find("crate") or n:find("barrel")
+    end
+    local function isFruit(inst) return inst and inst.Name:lower():find("fruit") ~= nil end
+    local function isBerry(inst)
+        if not inst then return false end
+        local n = inst.Name:lower()
+        return n:find("berry") or n:find("flower")
+    end
+    local function get_pos(inst)
+        if not inst then return nil end
+        if inst:IsA("BasePart") then return inst.Position end
+        if inst:IsA("Model") then
+            local p = inst.PrimaryPart; if p then return p.Position end
+            for _, d in ipairs(inst:GetDescendants()) do if d:IsA("BasePart") then return d.Position end end
+        end
+        if inst:IsA("Tool") then
+            local h = inst:FindFirstChildWhichIsA("BasePart"); if h then return h.Position end
+        end
+        return nil
+    end
+    local function get_size(inst)
+        if not inst then return Vector3.new(2,2,2) end
+        if inst:IsA("BasePart") then return inst.Size end
+        if inst:IsA("Model") then
+            local ok, _, size = pcall(function() return inst:GetBoundingBox() end)
+            if ok and size then return size end
+        end
+        return Vector3.new(2,2,2)
+    end
+    local HAS_DRAWING = (Drawing ~= nil)
+    local function new_drawing(class, props)
+        if not HAS_DRAWING then return nil end
+        local d = Drawing.new(class)
+        for k, v in pairs(props) do d[k] = v end
+        return d
+    end
+    local function esp_color_for(tag)
+        if tag == "chest" then return Color3.fromRGB(255, 200, 90) end
+        if tag == "fruit" then return Color3.fromRGB(255, 120, 200) end
+        if tag == "berry" then return Color3.fromRGB(160, 100, 255) end
+        if tag == "enemy" then return CONFIG.Danger end
+        if tag == "boss" then return Color3.fromRGB(255, 60, 60) end
+        return CONFIG.Accent
+    end
+    local function esp_entry(inst, tag)
+        if BF.espCache[inst] then return BF.espCache[inst] end
+        if not HAS_DRAWING then return nil end
+        local color = esp_color_for(tag)
+        local e = {
+            box  = new_drawing("Square", { Thickness = 1, Color = color, Filled = false, Transparency = 0.9 }),
+            name = new_drawing("Text", { Text = "", Size = 13, Center = true, Outline = true, Color = Color3.new(1,1,1), Font = 2 }),
+            dist = new_drawing("Text", { Text = "", Size = 11, Center = true, Outline = true, Color = color, Font = 2 }),
+        }
+        BF.espCache[inst] = e
+        return e
+    end
+    local function remove_entry(e)
+        if not e then return end
+        for _, o in pairs(e) do pcall(function() o:Remove() end) end
+    end
+    local function clear_esp()
+        for _, e in pairs(BF.espCache) do remove_entry(e) end
+        BF.espCache = {}
+    end
+    local function draw_esp(inst, tag)
+        local pos = get_pos(inst); local hrp = MOD.getHRP()
+        if not pos or not hrp then return end
+        local dist = (pos - hrp.Position).Magnitude
+        if dist > BF.espRange then return end
+        local cam = Workspace.CurrentCamera; if not cam then return end
+        local sp, on_screen = cam:WorldToViewportPoint(pos)
+        if not on_screen then return end
+        local e = esp_entry(inst, tag); if not e then return end
+        local size = get_size(inst)
+        local scale = 1 / math.max(dist, 1) * 500
+        local w = math.max(8, size.X * scale * 0.5)
+        local h = math.max(12, size.Y * scale * 0.5)
+        e.box.Visible = true; e.box.Size = Vector2.new(w, h)
+        e.box.Position = Vector2.new(sp.X - w/2, sp.Y - h/2)
+        e.name.Visible = true
+        e.name.Position = Vector2.new(sp.X, sp.Y - h/2 - 16)
+        e.name.Text = inst.Name
+        e.dist.Visible = true
+        e.dist.Position = Vector2.new(sp.X, sp.Y + h/2 + 2)
+        e.dist.Text = string.format("%dm", math.floor(dist))
+    end
+    local function scan_esp()
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            local tag = nil
+            if isChest(inst) and BF.espChests then tag = "chest"
+            elseif isFruit(inst) and BF.espFruits then tag = "fruit"
+            elseif isBerry(inst) and BF.espBerries then tag = "berry" end
+            if not tag and inst:IsA("Model") then
+                if isBoss(inst) and BF.espBosses then tag = "boss"
+                elseif isEnemy(inst) and BF.espEnemies then tag = "enemy" end
+            end
+            if tag then
+                if tag == "chest" then BF.chestSet[inst] = true
+                elseif tag == "fruit" then BF.fruitSet[inst] = true
+                elseif tag == "berry" then BF.berrySet[inst] = true
+                else BF.enemySet[inst] = true end
+                if HAS_DRAWING then pcall(draw_esp, inst, tag) end
+            end
+        end
+    end
+    local function nearest_of(set, range)
+        local hrp = MOD.getHRP(); if not hrp then return nil, math.huge end
+        local best, bestd = nil, range or math.huge
+        for inst, _ in pairs(set) do
+            if inst and inst.Parent then
+                local p = get_pos(inst)
+                if p then
+                    local d = (p - hrp.Position).Magnitude
+                    if d < bestd then best, bestd = inst, d end
+                end
+            end
+        end
+        return best, bestd
+    end
+    local function collect_chest()
+        if not BF.autoChest then return end
+        local target = nearest_of(BF.chestSet, BF.chestRange); if not target then return end
+        local pos = get_pos(target); if not pos then return end
+        MOD.physicsTP(CFrame.new(pos)); task.wait(0.2)
+        for _, d in ipairs(target:GetDescendants()) do
+            if d:IsA("ProximityPrompt") and d.Enabled then
+                if fireproximityprompt then fireproximityprompt(d) end
+            end
+        end
+        BF.chestsOpened = BF.chestsOpened + 1
+    end
+    local function collect_fruit()
+        if not BF.autoFruit then return end
+        local target = nearest_of(BF.fruitSet, BF.fruitRange); if not target then return end
+        local pos = get_pos(target); if not pos then return end
+        MOD.physicsTP(CFrame.new(pos)); task.wait(0.2)
+        local handle = target:FindFirstChildWhichIsA("BasePart") or (target:IsA("BasePart") and target)
+        local hrp = MOD.getHRP()
+        if handle and hrp and FEATURES.firetouch then
+            pcall(function() firetouchinterest(hrp, handle, 0) end)
+            pcall(function() firetouchinterest(hrp, handle, 1) end)
+            BF.fruitsCollected = BF.fruitsCollected + 1
+        end
+    end
+    local function collect_berry()
+        if not BF.autoBerry then return end
+        local target = nearest_of(BF.berrySet, BF.berryRange); if not target then return end
+        local pos = get_pos(target); if not pos then return end
+        MOD.physicsTP(CFrame.new(pos)); task.wait(0.2)
+        local handle = target:FindFirstChildWhichIsA("BasePart") or (target:IsA("BasePart") and target)
+        local hrp = MOD.getHRP()
+        if handle and hrp and FEATURES.firetouch then
+            pcall(function() firetouchinterest(hrp, handle, 0) end)
+            pcall(function() firetouchinterest(hrp, handle, 1) end)
+            BF.berriesCollected = BF.berriesCollected + 1
+        end
+    end
+    local function attack_enemy(enemy)
+        if not enemy then return end
+        local hum = enemy:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+        local tool = MOD.getTool()
+        if tool then pcall(function() tool:Activate() end) end
+        if VirtualInputManager then
+            local function fire(k) VirtualInputManager:SendKeyEvent(true, k, false, game); task.wait(0.05); VirtualInputManager:SendKeyEvent(false, k, false, game) end
+            if BF.autoSkillZ then pcall(fire, Enum.KeyCode.Z) end
+            if BF.autoSkillX then pcall(fire, Enum.KeyCode.X) end
+            if BF.autoSkillC then pcall(fire, Enum.KeyCode.C) end
+            if BF.autoSkillV then pcall(fire, Enum.KeyCode.V) end
+            if BF.autoSkillF then pcall(fire, Enum.KeyCode.F) end
+        end
+    end
+    local function farm_tick()
+        local hrp = MOD.getHRP(); if not hrp then return end
+        local enemy = nearest_of(BF.enemySet, BF.farmRange)
+        if not enemy then BF.farmTarget = nil; return end
+        BF.farmTarget = enemy
+        local pos = get_pos(enemy); if not pos then return end
+        local dist = (pos - hrp.Position).Magnitude
+        if dist > 12 then MOD.physicsTP(CFrame.new(pos + Vector3.new(0, 3, 0)))
+        else attack_enemy(enemy) end
+    end
+    local savedLight = nil
+    local function set_fullbright(on)
+        if on then
+            if not savedLight then
+                savedLight = { Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+                    Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd }
+            end
+            Lighting.Ambient = Color3.fromRGB(180,180,180); Lighting.OutdoorAmbient = Color3.fromRGB(180,180,180)
+            Lighting.Brightness = 3; Lighting.ClockTime = 14; Lighting.FogEnd = 1e6
+        elseif savedLight then
+            for k, v in pairs(savedLight) do pcall(function() Lighting[k] = v end) end
+            savedLight = nil
+        end
+    end
+
+    Hub:AddSection(page, "Farm")
+    Hub:AddToggle(page, "Auto-farm enemies", false, function(on) BF.autoFarm = on end)
+    Hub:AddToggle(page, "Auto-attack", false, function(on) BF.autoAttack = on end)
+    Hub:AddSlider(page, "Farm range", 10, 100, 30, function(v) BF.farmRange = v end)
+    Hub:AddSlider(page, "Attack range", 5, 60, 20, function(v) BF.attackRange = v end)
+
+    Hub:AddSection(page, "Auto-skills")
+    Hub:AddToggle(page, "Auto Z", false, function(on) BF.autoSkillZ = on end)
+    Hub:AddToggle(page, "Auto X", false, function(on) BF.autoSkillX = on end)
+    Hub:AddToggle(page, "Auto C", false, function(on) BF.autoSkillC = on end)
+    Hub:AddToggle(page, "Auto V", false, function(on) BF.autoSkillV = on end)
+    Hub:AddToggle(page, "Auto F", false, function(on) BF.autoSkillF = on end)
+
+    Hub:AddSection(page, "Collect")
+    Hub:AddToggle(page, "Auto-collect chests", false, function(on) BF.autoChest = on end)
+    Hub:AddToggle(page, "Auto-collect fruits", false, function(on) BF.autoFruit = on end)
+    Hub:AddToggle(page, "Auto-collect berries", false, function(on) BF.autoBerry = on end)
+    Hub:AddSlider(page, "Chest range", 50, 1000, 300, function(v) BF.chestRange = v end)
+    Hub:AddSlider(page, "Fruit range", 50, 2000, 500, function(v) BF.fruitRange = v end)
+    Hub:AddSlider(page, "Berry range", 50, 500, 150, function(v) BF.berryRange = v end)
+
+    Hub:AddSection(page, "ESP")
+    Hub:AddToggle(page, "Chests", true, function(on) BF.espChests = on end)
+    Hub:AddToggle(page, "Fruits", true, function(on) BF.espFruits = on end)
+    Hub:AddToggle(page, "Berries", false, function(on) BF.espBerries = on end)
+    Hub:AddToggle(page, "Enemies", false, function(on) BF.espEnemies = on end)
+    Hub:AddToggle(page, "Bosses", false, function(on) BF.espBosses = on end)
+    Hub:AddSlider(page, "ESP range", 100, 3000, 500, function(v) BF.espRange = v end)
+
+    Hub:AddSection(page, "Movement")
+    Hub:AddSlider(page, "WalkSpeed", 16, 80, 16, function(v)
+        local hum = MOD.getHum(); if hum then hum.WalkSpeed = v end
+    end)
+
+    Hub:AddSection(page, "Teleports")
+    for name, cf in pairs(LOCATIONS) do
+        Hub:AddButton(page, "TP → " .. name, function() MOD.physicsTP(cf) end)
+    end
+
+    Hub:AddSection(page, "Visual")
+    Hub:AddToggle(page, "Fullbright", false, function(on) BF.fullbright = on; set_fullbright(on) end)
+
+    Hub:AddSection(page, "Session")
+    local statLbl = Instance.new("TextLabel")
+    statLbl.Size = UDim2.new(1, 0, 0, 110); statLbl.BackgroundColor3 = CONFIG.BG2; statLbl.BorderSizePixel = 0
+    statLbl.TextColor3 = CONFIG.Text; statLbl.Font = Enum.Font.Code; statLbl.TextSize = 11
+    statLbl.TextXAlignment = Enum.TextXAlignment.Left; statLbl.TextYAlignment = Enum.TextYAlignment.Top
+    statLbl.TextWrapped = true; statLbl.Text = "  session: loading..."; statLbl.Parent = page
+    corner(statLbl, 6)
+    local sp = Instance.new("UIPadding"); sp.PaddingTop = UDim.new(0, 6); sp.PaddingLeft = UDim.new(0, 8); sp.Parent = statLbl
+
+    Hub:AddButton(page, "Clear ESP cache", function() clear_esp() end)
+
+    State.Conn.bfHeartbeat = RunService.Heartbeat:Connect(function()
+        pcall(scan_esp)
+        for inst, e in pairs(BF.espCache) do
+            if not inst or not inst.Parent then remove_entry(e); BF.espCache[inst] = nil end
+        end
+        local now = tick()
+        if BF.autoFarm then pcall(farm_tick)
+        elseif BF.autoAttack then
+            local hrp = MOD.getHRP()
+            if hrp and now - BF.lastAttack > BF.attackInterval then
+                BF.lastAttack = now
+                local enemy = nearest_of(BF.enemySet, BF.attackRange)
+                if enemy then attack_enemy(enemy) end
+            end
+        end
+        if now - BF.lastCollect > 0.6 then
+            BF.lastCollect = now
+            pcall(collect_chest); pcall(collect_fruit); pcall(collect_berry)
+        end
+    end)
+    State.Conn.bfStats = task.spawn(function()
+        while State.Conn.bfHeartbeat do
+            local elapsed = tick() - BF.sessionStart
+            local mins = math.floor(elapsed / 60); local secs = math.floor(elapsed % 60)
+            statLbl.Text = string.format("  session: %02d:%02d\n  fruits: %d  chests: %d  berries: %d\n  kills: %d\n  farm target: %s",
+                mins, secs, BF.fruitsCollected, BF.chestsOpened, BF.berriesCollected, BF.kills,
+                BF.farmTarget and BF.farmTarget.Name or "none")
+            task.wait(0.5)
+        end
+    end)
+end
+GAMES["Blox Fruits"].Build = buildBloxFruits
+
+--=====================================================================
+-- MM2 MODULE
+--=====================================================================
+local function buildMM2(page, ctx)
+    local Hub = ctx.Hub
+    local MM = {
+        espOn = true, espMurderer = true, espSheriff = true, espInnocents = true,
+        espGuns = true, espKnives = true, espCoins = true,
+        espBoxes = true, espNames = true, espDistance = true, espTracers = false,
+        espRange = 500,
+        autoCoin = false, coinRange = 60,
+        autoPickup = false, pickupRange = 12,
+        proximityAlert = false, alertDistance = 50, alertsFired = 0,
+        autoShoot = false, shootInterval = 0.3,
+        autoStab = false,  stabInterval = 0.5,
+        infiniteJump = false, fullbright = false, walkSpeed = 16,
+        sessionStart = tick(),
+        lastAction = "idle",
+        lastPickupAt = 0, lastAttackAt = 0,
+        myRole = "unknown", murdererName = nil, sheriffName = nil,
+        playerRoleCache = {}, playerEspCache = {}, itemEspCache = {},
+        coinSet = {}, gunSet = {}, knifeSet = {},
+        debugLines = {},
+    }
+    local function mmlog(m)
+        local t = os.date("%H:%M:%S")
+        table.insert(MM.debugLines, string.format("[%s] %s", t, m))
+        while #MM.debugLines > 12 do table.remove(MM.debugLines, 1) end
+    end
+    local function role_of(plr)
+        if not plr or not plr.Character then return "innocent" end
+        for _, tool in ipairs(plr.Character:GetChildren()) do
+            if tool:IsA("Tool") then
+                local n = tool.Name:lower()
+                if n:find("knife") then return "murderer" end
+                if n:find("gun") or n:find("revolver") or n:find("pistol") then return "sheriff" end
+            end
+        end
+        return "innocent"
+    end
+    local function refresh_roles()
+        MM.murdererName = nil; MM.sheriffName = nil; MM.playerRoleCache = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            local r = role_of(plr)
+            MM.playerRoleCache[plr] = r
+            if r == "murderer" then MM.murdererName = plr.Name
+            elseif r == "sheriff" then MM.sheriffName = plr.Name end
+        end
+        MM.myRole = MM.playerRoleCache[LocalPlayer] or "innocent"
+    end
+    local function isGun(inst)
+        local n = inst and inst.Name:lower() or ""
+        return n:find("gun") or n:find("revolver") or n:find("pistol")
+    end
+    local function isKnife(inst)
+        local n = inst and inst.Name:lower() or ""
+        return n:find("knife") or n:find("dagger") or n:find("blade")
+    end
+    local function isCoin(inst)
+        local n = inst and inst.Name:lower() or ""
+        return n == "coin" or n:find("coin") or n:find("money")
+    end
+    local function get_pos(inst)
+        if not inst then return nil end
+        if inst:IsA("BasePart") then return inst.Position end
+        if inst:IsA("Model") then
+            local p = inst.PrimaryPart; if p then return p.Position end
+            for _, d in ipairs(inst:GetDescendants()) do if d:IsA("BasePart") then return d.Position end end
+        end
+        if inst:IsA("Tool") then
+            local h = inst:FindFirstChildWhichIsA("BasePart"); if h then return h.Position end
+        end
+        return nil
+    end
+    local HAS_DRAWING = (Drawing ~= nil)
+    local function new_drawing(class, props)
+        if not HAS_DRAWING then return nil end
+        local d = Drawing.new(class)
+        for k, v in pairs(props) do d[k] = v end
+        return d
+    end
+    local function make_entry(color, with_tracer)
+        if not HAS_DRAWING then return nil end
+        local e = {
+            box  = new_drawing("Square", { Thickness = 1, Color = color, Filled = false, Transparency = 0.9 }),
+            name = new_drawing("Text", { Text = "", Size = 13, Center = true, Outline = true, Color = Color3.new(1,1,1), Font = 2 }),
+            dist = new_drawing("Text", { Text = "", Size = 11, Center = true, Outline = true, Color = color, Font = 2 }),
+        }
+        if with_tracer then
+            e.tracer = new_drawing("Line", { Thickness = 1, Color = color, Transparency = 0.5 })
+        end
+        return e
+    end
+    local function entry_remove(e)
+        if not e then return end
+        for _, o in pairs(e) do pcall(function() o:Remove() end) end
+    end
+    local ROLE_COLOR = { murderer = CONFIG.MurderRed, sheriff = CONFIG.SheriffBlue, innocent = CONFIG.InnocentGrn }
+    local ROLE_PREFIX = { murderer = "[MURDERER]", sheriff = "[SHERIFF]", innocent = "[INNOCENT]" }
+    local function draw_player(plr)
+        if not MM.espOn then return end
+        local role = MM.playerRoleCache[plr] or "innocent"
+        if role == "murderer" and not MM.espMurderer then return end
+        if role == "sheriff" and not MM.espSheriff then return end
+        if role == "innocent" and not MM.espInnocents then return end
+        local char = plr.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then return end
+        local myHrp = MOD.getHRP(); if not myHrp then return end
+        local dist = (hrp.Position - myHrp.Position).Magnitude
+        if dist > MM.espRange then return end
+        local cam = Workspace.CurrentCamera; if not cam then return end
+        local sp, on_screen = cam:WorldToViewportPoint(hrp.Position)
+        if not on_screen then return end
+        if not MM.playerEspCache[plr] then
+            MM.playerEspCache[plr] = make_entry(ROLE_COLOR[role] or CONFIG.Accent, true)
+        end
+        local e = MM.playerEspCache[plr]; if not e then return end
+        local scale = 1 / math.max(dist, 1) * 500
+        local w = math.max(8,  3 * scale * 0.5)
+        local h = math.max(12, 5 * scale * 0.5)
+        e.box.Visible = MM.espBoxes; e.box.Color = ROLE_COLOR[role] or CONFIG.Accent
+        e.box.Size = Vector2.new(w, h); e.box.Position = Vector2.new(sp.X - w/2, sp.Y - h/2)
+        e.name.Visible = MM.espNames; e.name.Position = Vector2.new(sp.X, sp.Y - h/2 - 16)
+        e.name.Text = (ROLE_PREFIX[role] or "") .. " " .. plr.Name
+        e.dist.Visible = MM.espDistance; e.dist.Position = Vector2.new(sp.X, sp.Y + h/2 + 2)
+        e.dist.Text = string.format("%dm", math.floor(dist)); e.dist.Color = ROLE_COLOR[role] or CONFIG.Accent
+        if e.tracer then
+            e.tracer.Visible = MM.espTracers
+            e.tracer.From = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
+            e.tracer.To = Vector2.new(sp.X, sp.Y + h/2)
+            e.tracer.Color = ROLE_COLOR[role] or CONFIG.Accent
+        end
+    end
+    local function draw_item(inst, tag)
+        if not MM.espOn then return end
+        if tag == "gun" and not MM.espGuns then return end
+        if tag == "knife" and not MM.espKnives then return end
+        if tag == "coin" and not MM.espCoins then return end
+        local pos = get_pos(inst); local myHrp = MOD.getHRP()
+        if not pos or not myHrp then return end
+        local dist = (pos - myHrp.Position).Magnitude
+        if dist > MM.espRange then return end
+        local cam = Workspace.CurrentCamera; if not cam then return end
+        local sp, on_screen = cam:WorldToViewportPoint(pos)
+        if not on_screen then return end
+        local color
+        if tag == "gun" then color = CONFIG.SheriffBlue
+        elseif tag == "knife" then color = CONFIG.MurderRed
+        elseif tag == "coin" then color = CONFIG.CoinGold
+        else color = Color3.fromRGB(255, 130, 200) end
+        if not MM.itemEspCache[inst] then MM.itemEspCache[inst] = make_entry(color, false) end
+        local e = MM.itemEspCache[inst]; if not e then return end
+        local scale = 1 / math.max(dist, 1) * 500
+        local w = math.max(8,  2 * scale * 0.5)
+        local h = math.max(12, 2 * scale * 0.5)
+        e.box.Visible = MM.espBoxes; e.box.Color = color
+        e.box.Size = Vector2.new(w, h); e.box.Position = Vector2.new(sp.X - w/2, sp.Y - h/2)
+        e.name.Visible = MM.espNames; e.name.Position = Vector2.new(sp.X, sp.Y - h/2 - 16)
+        e.name.Text = "[" .. tag:upper() .. "] " .. inst.Name
+        e.dist.Visible = MM.espDistance; e.dist.Position = Vector2.new(sp.X, sp.Y + h/2 + 2)
+        e.dist.Text = string.format("%dm", math.floor(dist)); e.dist.Color = color
+    end
+    local function scan_items()
+        MM.gunSet = {}; MM.knifeSet = {}; MM.coinSet = {}
+        for _, inst in ipairs(Workspace:GetDescendants()) do
+            if inst:IsA("BasePart") or inst:IsA("Tool") or inst:IsA("Model") then
+                local insideChar = false
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr.Character and inst:IsDescendantOf(plr.Character) then insideChar = true; break end
+                end
+                if not insideChar then
+                    local tag = nil
+                    if isGun(inst) then tag = "gun"
+                    elseif isKnife(inst) then tag = "knife"
+                    elseif isCoin(inst) then tag = "coin" end
+                    if tag then
+                        if tag == "gun" then MM.gunSet[inst] = true
+                        elseif tag == "knife" then MM.knifeSet[inst] = true
+                        elseif tag == "coin" then MM.coinSet[inst] = true end
+                        pcall(draw_item, inst, tag)
+                    end
+                end
+            end
+        end
+    end
+    local function auto_coin_tick()
+        if not MM.autoCoin then return end
+        local hum = MOD.getHum(); if not hum then return end
+        local myHrp = MOD.getHRP(); if not myHrp then return end
+        local best, bestd = nil, MM.coinRange
+        for inst, _ in pairs(MM.coinSet) do
+            if inst and inst.Parent then
+                local p = get_pos(inst)
+                if p then
+                    local d = (p - myHrp.Position).Magnitude
+                    if d < bestd then best, bestd = inst, d end
+                end
+            end
+        end
+        if best then
+            local p = get_pos(best)
+            if p then hum:MoveTo(p); MM.lastAction = "walking to coin" end
+        end
+    end
+    local function auto_pickup_tick()
+        if not MM.autoPickup then return end
+        local myHrp = MOD.getHRP(); if not myHrp then return end
+        local now = tick(); if now - MM.lastPickupAt < 0.3 then return end
+        MM.lastPickupAt = now
+        for inst, _ in pairs(MM.gunSet) do
+            if inst and inst.Parent then
+                local p = get_pos(inst)
+                if p and (p - myHrp.Position).Magnitude < MM.pickupRange then
+                    local handle = inst:FindFirstChildWhichIsA("BasePart") or (inst:IsA("BasePart") and inst)
+                    if handle and FEATURES.firetouch then
+                        pcall(function() firetouchinterest(myHrp, handle, 0) end)
+                        pcall(function() firetouchinterest(myHrp, handle, 1) end)
+                        mmlog("pickup gun " .. inst.Name)
+                    end
+                end
+            end
+        end
+        for inst, _ in pairs(MM.knifeSet) do
+            if inst and inst.Parent then
+                local p = get_pos(inst)
+                if p and (p - myHrp.Position).Magnitude < MM.pickupRange then
+                    local handle = inst:FindFirstChildWhichIsA("BasePart") or (inst:IsA("BasePart") and inst)
+                    if handle and FEATURES.firetouch then
+                        pcall(function() firetouchinterest(myHrp, handle, 0) end)
+                        pcall(function() firetouchinterest(myHrp, handle, 1) end)
+                        mmlog("pickup knife " .. inst.Name)
+                    end
+                end
+            end
+        end
+    end
+    local function auto_shoot_tick()
+        if not MM.autoShoot then return end
+        if MM.myRole ~= "sheriff" then return end
+        if not MM.murdererName then return end
+        local murderer = Players:FindFirstChild(MM.murdererName)
+        if not murderer or not murderer.Character then return end
+        local tHrp = murderer.Character:FindFirstChild("HumanoidRootPart")
+        if not tHrp then return end
+        local now = tick(); if now - MM.lastAttackAt < MM.shootInterval then return end
+        MM.lastAttackAt = now
+        local cam = Workspace.CurrentCamera
+        if cam then cam.CFrame = CFrame.new(cam.CFrame.Position, tHrp.Position) end
+        local tool = MOD.getTool()
+        if tool and tool.Name:lower():find("gun") then
+            pcall(function() tool:Activate() end)
+            MM.lastAction = "shoot: " .. murderer.Name
+        end
+    end
+    local function auto_stab_tick()
+        if not MM.autoStab then return end
+        if MM.myRole ~= "murderer" then return end
+        local myHrp = MOD.getHRP(); if not myHrp then return end
+        local now = tick(); if now - MM.lastAttackAt < MM.stabInterval then return end
+        local best, bestd = nil, 15
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local role = MM.playerRoleCache[plr] or "innocent"
+                if role ~= "murderer" then
+                    local tHrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                    local hum  = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if tHrp and hum and hum.Health > 0 then
+                        local d = (tHrp.Position - myHrp.Position).Magnitude
+                        if d < bestd then best, bestd = plr, d end
+                    end
+                end
+            end
+        end
+        if not best then return end
+        MM.lastAttackAt = now
+        local tHrp = best.Character:FindFirstChild("HumanoidRootPart")
+        if tHrp then
+            if bestd > 4 then MOD.physicsTP(CFrame.new(tHrp.Position + Vector3.new(0, 0, 2))) end
+            task.wait(0.08)
+            local tool = MOD.getTool()
+            if tool and tool.Name:lower():find("knife") then
+                pcall(function() tool:Activate() end)
+                MM.lastAction = "stab: " .. best.Name
+            end
+        end
+    end
+    local lastAlert = 0
+    local function alert_tick()
+        if not MM.proximityAlert then return end
+        if MM.myRole == "murderer" then return end
+        if not MM.murdererName then return end
+        local murderer = Players:FindFirstChild(MM.murdererName)
+        if not murderer or not murderer.Character then return end
+        local tHrp = murderer.Character:FindFirstChild("HumanoidRootPart")
+        local myHrp = MOD.getHRP()
+        if not tHrp or not myHrp then return end
+        local d = (tHrp.Position - myHrp.Position).Magnitude
+        if d < MM.alertDistance then
+            local now = tick()
+            if now - lastAlert > 3 then
+                lastAlert = now
+                MM.alertsFired = MM.alertsFired + 1
+                MM.lastAction = "MURDERER NEAR: " .. murderer.Name
+                mmlog("ALERT: murderer within " .. math.floor(d) .. "m")
+                local sound = Instance.new("Sound")
+                sound.SoundId = "rbxasset://sounds/electronicpingshort.wav"
+                sound.Volume = 1; sound.Parent = SoundService; sound:Play()
+                task.delay(1, function() sound:Destroy() end)
+            end
+        end
+    end
+    local savedLight = nil
+    local function set_fullbright(on)
+        if on then
+            if not savedLight then
+                savedLight = { Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+                    Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd }
+            end
+            Lighting.Ambient = Color3.fromRGB(180,180,180); Lighting.OutdoorAmbient = Color3.fromRGB(180,180,180)
+            Lighting.Brightness = 3; Lighting.ClockTime = 14; Lighting.FogEnd = 1e6
+        elseif savedLight then
+            for k, v in pairs(savedLight) do pcall(function() Lighting[k] = v end) end
+            savedLight = nil
+        end
+    end
+
+    Hub:AddSection(page, "ESP — players")
+    Hub:AddToggle(page, "Master ESP", true, function(on)
+        MM.espOn = on
+        if not on then
+            for _, e in pairs(MM.playerEspCache) do entry_remove(e) end
+            for _, e in pairs(MM.itemEspCache) do entry_remove(e) end
+            MM.playerEspCache = {}; MM.itemEspCache = {}
+        end
+    end)
+    Hub:AddToggle(page, "Show murderer (red)", true, function(on) MM.espMurderer = on end)
+    Hub:AddToggle(page, "Show sheriff (blue)", true, function(on) MM.espSheriff = on end)
+    Hub:AddToggle(page, "Show innocents (green)", true, function(on) MM.espInnocents = on end)
+    Hub:AddToggle(page, "Boxes", true, function(on) MM.espBoxes = on end)
+    Hub:AddToggle(page, "Names + distance", true, function(on) MM.espNames = on; MM.espDistance = on end)
+    Hub:AddToggle(page, "Tracers", false, function(on) MM.espTracers = on end)
+
+    Hub:AddSection(page, "ESP — items")
+    Hub:AddToggle(page, "Guns (blue)", true, function(on) MM.espGuns = on end)
+    Hub:AddToggle(page, "Knives (red)", true, function(on) MM.espKnives = on end)
+    Hub:AddToggle(page, "Coins (gold)", true, function(on) MM.espCoins = on end)
+    Hub:AddSlider(page, "ESP range", 50, 1000, 500, function(v) MM.espRange = v end)
+
+    Hub:AddSection(page, "Auto coin / pickup")
+    Hub:AddToggle(page, "Auto coin (walk)", false, function(on) MM.autoCoin = on end)
+    Hub:AddSlider(page, "Coin range", 10, 300, 60, function(v) MM.coinRange = v end)
+    Hub:AddToggle(page, "Auto pickup (guns/knives)", false, function(on) MM.autoPickup = on end)
+    Hub:AddSlider(page, "Pickup range", 5, 40, 12, function(v) MM.pickupRange = v end)
+
+    Hub:AddSection(page, "Combat")
+    Hub:AddToggle(page, "Auto-shoot (sheriff)", false, function(on) MM.autoShoot = on end)
+    Hub:AddSlider(page, "Shoot interval (x100ms)", 10, 200, 30, function(v) MM.shootInterval = v / 100 end)
+    Hub:AddToggle(page, "Auto-stab (murderer)", false, function(on) MM.autoStab = on end)
+    Hub:AddSlider(page, "Stab interval (x100ms)", 10, 200, 50, function(v) MM.stabInterval = v / 100 end)
+
+    Hub:AddSection(page, "Proximity alert")
+    Hub:AddToggle(page, "Alert when murderer near", false, function(on) MM.proximityAlert = on end)
+    Hub:AddSlider(page, "Alert distance", 10, 200, 50, function(v) MM.alertDistance = v end)
+
+    Hub:AddSection(page, "Movement")
+    Hub:AddToggle(page, "Infinite jump (airborne only)", false, function(on)
+        MM.infiniteJump = on
+        if State.Conn.mmInfJump then State.Conn.mmInfJump:Disconnect(); State.Conn.mmInfJump = nil end
+        if not on then return end
+        State.Conn.mmInfJump = UserInputService.JumpRequest:Connect(function()
+            local hum = MOD.getHum()
+            if hum and hum.FloorMaterial == Enum.Material.Air then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end)
+    Hub:AddToggle(page, "Fullbright", false, function(on) MM.fullbright = on; set_fullbright(on) end)
+    Hub:AddSlider(page, "WalkSpeed", 16, 100, 16, function(v)
+        MM.walkSpeed = v
+        local hum = MOD.getHum(); if hum then hum.WalkSpeed = v end
+    end)
+
+    Hub:AddSection(page, "Session")
+    local statLbl = Instance.new("TextLabel")
+    statLbl.Size = UDim2.new(1, 0, 0, 140); statLbl.BackgroundColor3 = CONFIG.BG2; statLbl.BorderSizePixel = 0
+    statLbl.TextColor3 = CONFIG.Text; statLbl.Font = Enum.Font.Code; statLbl.TextSize = 11
+    statLbl.TextXAlignment = Enum.TextXAlignment.Left; statLbl.TextYAlignment = Enum.TextYAlignment.Top
+    statLbl.TextWrapped = true; statLbl.Text = "  session: loading..."; statLbl.Parent = page
+    corner(statLbl, 6)
+    local sp = Instance.new("UIPadding"); sp.PaddingTop = UDim.new(0, 6); sp.PaddingLeft = UDim.new(0, 8); sp.Parent = statLbl
+
+    Hub:AddSection(page, "Debug")
+    local debugLbl = Instance.new("TextLabel")
+    debugLbl.Size = UDim2.new(1, 0, 0, 120); debugLbl.BackgroundColor3 = CONFIG.BG2; debugLbl.BorderSizePixel = 0
+    debugLbl.TextColor3 = CONFIG.SubText; debugLbl.Font = Enum.Font.Code; debugLbl.TextSize = 10
+    debugLbl.TextXAlignment = Enum.TextXAlignment.Left; debugLbl.TextYAlignment = Enum.TextYAlignment.Top
+    debugLbl.TextWrapped = true; debugLbl.Text = "  debug: ready"; debugLbl.Parent = page
+    corner(debugLbl, 6)
+    local dp = Instance.new("UIPadding"); dp.PaddingTop = UDim.new(0, 6); dp.PaddingLeft = UDim.new(0, 8); dp.Parent = debugLbl
+
+    Hub:AddButton(page, "Refresh roles", function() refresh_roles(); mmlog("roles refreshed") end)
+
+    State.Conn.mmHeartbeat = RunService.Heartbeat:Connect(function()
+        if not MM.lastRoleAt or tick() - MM.lastRoleAt > 1.5 then
+            MM.lastRoleAt = tick()
+            pcall(refresh_roles)
+        end
+        if not MM.lastScanAt or tick() - MM.lastScanAt > 0.5 then
+            MM.lastScanAt = tick()
+            pcall(scan_items)
+        end
+        if MM.espOn then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then pcall(draw_player, plr) end
+            end
+        end
+        for inst in pairs(MM.gunSet) do pcall(draw_item, inst, "gun") end
+        for inst in pairs(MM.knifeSet) do pcall(draw_item, inst, "knife") end
+        for inst in pairs(MM.coinSet) do pcall(draw_item, inst, "coin") end
+        for plr, e in pairs(MM.playerEspCache) do
+            if not plr or not plr.Parent then entry_remove(e); MM.playerEspCache[plr] = nil end
+        end
+        for inst, e in pairs(MM.itemEspCache) do
+            if not inst or not inst.Parent then entry_remove(e); MM.itemEspCache[inst] = nil end
+        end
+        pcall(auto_coin_tick); pcall(auto_pickup_tick); pcall(auto_shoot_tick)
+        pcall(auto_stab_tick); pcall(alert_tick)
+    end)
+    State.Conn.mmStats = task.spawn(function()
+        while State.Conn.mmHeartbeat do
+            local elapsed = tick() - MM.sessionStart
+            local mins = math.floor(elapsed / 60); local secs = math.floor(elapsed % 60)
+            local ping = 0
+            pcall(function() ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+            statLbl.Text = string.format(
+                "  session: %02d:%02d  ping: %.0fms\n  my role: %s\n  murderer: %s\n  sheriff: %s\n  alerts: %d\n  last: %s",
+                mins, secs, ping, MM.myRole:upper(),
+                MM.murdererName or "?", MM.sheriffName or "?",
+                MM.alertsFired, MM.lastAction)
+            debugLbl.Text = #MM.debugLines > 0 and table.concat(MM.debugLines, "\n") or "  debug: ready"
+            task.wait(0.5)
+        end
+    end)
+end
+GAMES["Murder Mystery 2"].Build = buildMM2
+
+--=====================================================================
+-- RIDE A PET MODULE
+--=====================================================================
+local function buildRideAPet(page, ctx)
+    local Hub = ctx.Hub
+    local RP = {
+        scanInterval = 0.30, scanIntervalMin = 0.10, scanIntervalMax = 0.60,
+        pingAdaptive = true, maxScanDistance = 2500,
+        autoPlace = true,
+        eggNamePatterns = { "Egg", "egg", "Pet Egg", "PetEgg", "egg_" },
+        placedEggBL = { "Placed", "placed", "Owned", "owned", "MyEgg", "myegg", "Stored", "stored", "Base", "base" },
+        placeWords = { "place", "open", "hatch", "put", "store" },
+        exclusionRadius = 80, minTargetDistance = 60,
+        baseScanRadius = 120,
+        basePartBL = { "Baseplate", "SpawnLocation", "Camera", "Terrain", "Humanoid", "Handle" },
+        baseRefresh = 2.0,
+        approachSteps = 4, approachStepDelay = 0.07,
+        promptRange = 8, finalOffset = 2.5,
+        verifyDelay = 0.06, verifyTol = 6, maxResnaps = 5, resnapWait = 0.05,
+        holdBuffer = 0.45, latencyPad = 0.20, maxHold = 6.0, defaultHold = 0.6,
+        holdBeginWait = 0.08, holdEndWait = 0.10,
+        grabVerifyDelay = 0.18, grabRetries = 5, grabRetryDelay = 0.12,
+        reapproachOnFail = true, reapproachAtt = 2,
+        postGrabSettle = 0.25,
+        touchSpamCount = 6, touchSpamDelay = 0.04,
+        legacyFire = true, humanoidReset = true,
+        carryWaitAfter = 0.40, carryCheckInt = 0.20, carryMaxWait = 5.0, carryConfirm = true,
+        placeWaitAfter = 0.35, placeMaxWait = 5.0,
+        phaseSettleShort = 0.05, phaseSettleLong = 0.10, settleOnRetry = 0.15,
+        maxTargetAge = 30,
+        dropBack = 1000,
+        running = false,
+        ranchCFrame = nil,
+        baseHullCenter = nil, baseHullRadius = 0, baseHullParts = {}, baseHullUpdated = 0,
+        currentTarget = nil, attemptedTargets = {},
+        eggsFound = 0, eggsGrabbed = 0, eggsPlaced = 0,
+        eggsSkipped = 0, eggsFailed = 0, eggsRecovered = 0,
+        eggsBaseBlocked = 0, eggsBlacklisted = 0,
+        carryBlocks = 0, teleportResnaps = 0, loops = 0,
+        lastAction = "idle", lastError = nil,
+        lastPromptHold = 0,
+        lastGrabAttempts = 0, lastGrabStrategy = "none",
+        smoothedPing = 0, sessionStart = tick(),
+        carrying = false, carryEgg = nil,
+        debugLines = {},
+    }
+    local function rplog(m)
+        local t = os.date("%H:%M:%S")
+        table.insert(RP.debugLines, string.format("[%s] %s", t, m))
+        while #RP.debugLines > 14 do table.remove(RP.debugLines, 1) end
+    end
+    local function read_ping()
+        local ok, ping = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+        if ok and typeof(ping) == "number" then
+            if RP.smoothedPing == 0 then RP.smoothedPing = ping
+            else RP.smoothedPing = RP.smoothedPing * 0.7 + ping * 0.3 end
+        end
+        return RP.smoothedPing > 0 and RP.smoothedPing or 50
+    end
+    local function currentScanInterval()
+        if not RP.pingAdaptive then return RP.scanInterval end
+        local ping = RP.smoothedPing
+        if ping <= 0 then return RP.scanInterval end
+        local a = math.clamp((ping - 50) / 150, 0, 1)
+        return RP.scanIntervalMin + (RP.scanIntervalMax - RP.scanIntervalMin) * a
+    end
+    local function cacheRanch()
+        if RP.ranchCFrame then return end
+        local r = MOD.getHRP()
+        if r then RP.ranchCFrame = r.CFrame end
+    end
+    local function recacheRanch()
+        local r = MOD.getHRP()
+        if r then RP.ranchCFrame = r.CFrame; rplog("ranch recached") end
+    end
+    local function isBaseBL(part)
+        if not part then return true end
+        local c = LocalPlayer.Character
+        if c and part:IsDescendantOf(c) then return true end
+        if part:IsDescendantOf(LocalPlayer) then return true end
+        local n = part.Name
+        for _, bad in ipairs(RP.basePartBL) do
+            if n == bad or n:find(bad) then return true end
+        end
+        return false
+    end
+    local function refreshBaseHull(force)
+        if not RP.ranchCFrame then return end
+        local now = tick()
+        if not force and now - RP.baseHullUpdated < RP.baseRefresh then return end
+        local center = RP.ranchCFrame.Position
+        local parts, maxR = {}, 0
+        pcall(function()
+            for _, inst in ipairs(Workspace:GetDescendants()) do
+                if inst:IsA("BasePart") and not isBaseBL(inst) then
+                    local d = (inst.Position - center).Magnitude
+                    if d <= RP.baseScanRadius then
+                        table.insert(parts, inst)
+                        if d > maxR then maxR = d end
+                    end
+                end
+            end
+        end)
+        RP.baseHullParts = parts
+        RP.baseHullCenter = center
+        RP.baseHullRadius = maxR
+        RP.baseHullUpdated = now
+    end
+    local function isInsideBase(eggPos)
+        if not eggPos or not RP.ranchCFrame then return false end
+        if (eggPos - RP.ranchCFrame.Position).Magnitude < RP.exclusionRadius then return true end
+        if RP.baseHullCenter then
+            if (eggPos - RP.baseHullCenter).Magnitude > RP.baseHullRadius + 20 then return false end
+            for _, part in ipairs(RP.baseHullParts) do
+                if part and part.Parent then
+                    local local_pos = part.CFrame:PointToObjectSpace(eggPos)
+                    local half = part.Size * 0.5 + Vector3.new(4, 4, 4)
+                    if math.abs(local_pos.X) <= half.X
+                    and math.abs(local_pos.Y) <= half.Y
+                    and math.abs(local_pos.Z) <= half.Z then return true end
+                end
+            end
+        end
+        return false
+    end
+    local function nameIsBL(name)
+        if not name then return false end
+        for _, pat in ipairs(RP.placedEggBL) do
+            if name:find(pat) then return true end
+        end
+        return false
+    end
+    local function isEgg(inst)
+        if not inst then return false end
+        if not (inst:IsA("Model") or inst:IsA("BasePart") or inst:IsA("Folder")) then return false end
+        if nameIsBL(inst.Name) then return false end
+        for _, pat in ipairs(RP.eggNamePatterns) do
+            if inst.Name:find(pat) then return true end
+        end
+        return false
+    end
+    local function getPos(inst)
+        if not inst then return nil end
+        if inst:IsA("BasePart") then return inst.Position end
+        if inst:IsA("Model") then
+            if inst.PrimaryPart then return inst.PrimaryPart.Position end
+            for _, d in ipairs(inst:GetDescendants()) do
+                if d:IsA("BasePart") then return d.Position end
+            end
+        end
+        return nil
+    end
+    local function isEligible(egg, eggPos)
+        if not eggPos then return false end
+        if isInsideBase(eggPos) then return false end
+        if RP.ranchCFrame then
+            if (eggPos - RP.ranchCFrame.Position).Magnitude < RP.minTargetDistance then return false end
+        end
+        local last = RP.attemptedTargets[egg]
+        if last and (tick() - last) < RP.maxTargetAge then return false end
+        return true
+    end
+    local function scoreTarget(eggPos, distToPlayer)
+        local score = math.max(0, 500 - distToPlayer) * 0.4
+        if RP.ranchCFrame then
+            local baseDist = (eggPos - RP.ranchCFrame.Position).Magnitude
+            score = score + math.min(baseDist, 500) * 0.6
+        end
+        return score
+    end
+    local function findBestEgg()
+        local root = MOD.getHRP(); if not root then return nil end
+        local best, bestScore = nil, -math.huge
+        local skBase, skBl, skCool = 0, 0, 0
+        pcall(function()
+            for _, inst in ipairs(Workspace:GetDescendants()) do
+                if isEgg(inst) then
+                    local pos = getPos(inst)
+                    if pos then
+                        if nameIsBL(inst.Name) then
+                            skBl = skBl + 1
+                        else
+                            local d = (pos - root.Position).Magnitude
+                            if d <= RP.maxScanDistance then
+                                if isInsideBase(pos) then
+                                    skBase = skBase + 1
+                                elseif not isEligible(inst, pos) then
+                                    skCool = skCool + 1
+                                else
+                                    local score = scoreTarget(pos, d)
+                                    if score > bestScore then best, bestScore = inst, score end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        RP.eggsBaseBlocked = skBase
+        RP.eggsBlacklisted = skBl
+        RP.eggsSkipped = skBase + skBl + skCool
+        return best
+    end
+    local function eggIsGone(egg)
+        if not egg then return true end
+        if not egg.Parent then return true end
+        if egg:IsDescendantOf(game:GetService("Players")) then return true end
+        local p = egg.Parent
+        while p do
+            if p:IsA("Player") then return true end
+            local n = p.Name:lower()
+            if n:find("backpack") or n:find("inventory") then return true end
+            p = p.Parent
+        end
+        return false
+    end
+    local function playerHoldsEgg()
+        for _, inst in ipairs(LocalPlayer:GetDescendants()) do
+            if isEgg(inst) then return true end
+        end
+        local c = LocalPlayer.Character
+        if c then
+            for _, inst in ipairs(c:GetDescendants()) do
+                if isEgg(inst) then return true end
+            end
+        end
+        return false
+    end
+    local function confirmCarry(egg)
+        if not RP.carryConfirm then return true end
+        local start = tick()
+        task.wait(RP.carryWaitAfter)
+        while tick() - start < RP.carryMaxWait do
+            if not RP.running then return false end
+            if eggIsGone(egg) or playerHoldsEgg() then return true end
+            task.wait(RP.carryCheckInt)
+        end
+        return false
+    end
+    local function confirmPlaced()
+        if not RP.carryConfirm then return true end
+        local start = tick()
+        task.wait(RP.placeWaitAfter)
+        while tick() - start < RP.placeMaxWait do
+            if not RP.running then return false end
+            if not playerHoldsEgg() then return true end
+            task.wait(RP.carryCheckInt)
+        end
+        return false
+    end
+    local function tpTo(pos)
+        local r = MOD.getHRP(); if not r then return false end
+        r.CFrame = CFrame.new(pos); return true
+    end
+    local function tpCF(cf)
+        local r = MOD.getHRP(); if not r then return false end
+        r.CFrame = cf; return true
+    end
+    local function tpVerify(targetPos, tol)
+        local r = MOD.getHRP(); if not r then return false end
+        tol = tol or RP.verifyTol
+        task.wait(RP.verifyDelay)
+        for i = 1, RP.maxResnaps do
+            if not RP.running then return false end
+            r = MOD.getHRP(); if not r then return false end
+            local drift = (r.Position - targetPos).Magnitude
+            if drift <= tol then return true end
+            RP.teleportResnaps = RP.teleportResnaps + 1
+            r.CFrame = CFrame.new(targetPos)
+            task.wait(RP.resnapWait)
+        end
+        return false
+    end
+    local function tpWithDropBack(eggPos)
+        local r = MOD.getHRP(); if not r then return end
+        local drop = RP.dropBack or 0
+        if drop <= 0 then tpTo(eggPos); tpVerify(eggPos); return end
+        local dir = r.Position - eggPos
+        if dir.Magnitude < 0.1 then dir = Vector3.new(1, 0, 0) else dir = dir.Unit end
+        local landing = eggPos + dir * drop
+        tpTo(landing); tpVerify(landing)
+    end
+    local function tpApproach(eggPos)
+        local r = MOD.getHRP(); if not r then return end
+        local dist = (r.Position - eggPos).Magnitude
+        if dist <= RP.promptRange then return end
+        local steps = math.max(1, RP.approachSteps)
+        local current = r.Position
+        for i = 1, steps do
+            if not RP.running then return end
+            r = MOD.getHRP(); if not r then return end
+            local remaining = (current - eggPos).Magnitude
+            if remaining <= RP.promptRange then break end
+            local targetDist = remaining - (remaining - RP.promptRange) / (steps - i + 1)
+            targetDist = math.max(targetDist, RP.promptRange)
+            local nextPos = eggPos + (current - eggPos).Unit * targetDist
+            tpTo(nextPos)
+            tpVerify(nextPos, RP.verifyTol * 1.5)
+            current = nextPos
+            task.wait(RP.approachStepDelay)
+        end
+    end
+    local function snapFinal(eggPos)
+        local r = MOD.getHRP(); if not r then return end
+        local dir = r.Position - eggPos
+        if dir.Magnitude < 0.1 then dir = Vector3.new(1, 0, 0) else dir = dir.Unit end
+        local landing = eggPos + dir * RP.finalOffset
+        r.CFrame = CFrame.new(landing)
+        if r:IsA("BasePart") then
+            r.AssemblyLinearVelocity = Vector3.zero
+            r.AssemblyAngularVelocity = Vector3.zero
+        end
+        local hum = MOD.getHum()
+        if RP.humanoidReset and hum then
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
+            task.wait(0.05)
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+        end
+        tpVerify(landing, RP.verifyTol)
+    end
+    local function tpReturn()
+        if not RP.ranchCFrame then return false end
+        tpCF(RP.ranchCFrame)
+        return tpVerify(RP.ranchCFrame.Position, RP.verifyTol * 2)
+    end
+    local function getHoldDur(prompt)
+        local d = RP.defaultHold
+        pcall(function()
+            if prompt and prompt:IsA("ProximityPrompt") then
+                local hd = prompt.HoldDuration
+                if typeof(hd) == "number" and hd > 0 then d = hd end
+            end
+        end)
+        if d > RP.maxHold then d = RP.maxHold end
+        return d
+    end
+    local function holdPromptFull(prompt, tag)
+        if not prompt then return false end
+        local hold = getHoldDur(prompt)
+        local total = hold + RP.holdBuffer + RP.latencyPad
+        RP.lastPromptHold = total
+        local ok = pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(RP.holdBeginWait)
+            task.wait(total)
+            prompt:InputHoldEnd()
+            task.wait(RP.holdEndWait)
+        end)
+        return ok
+    end
+    local function legacyFire(prompt, tag)
+        if not prompt then return false end
+        local ok = pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(RP.defaultHold + RP.latencyPad)
+            prompt:InputHoldEnd()
+        end)
+        pcall(function() prompt.Triggered:Fire(LocalPlayer) end)
+        return ok
+    end
+    local function touchSpam(egg, tag)
+        local root = MOD.getHRP()
+        if not egg or not root then return false end
+        local target = egg
+        if egg:IsA("Model") then
+            for _, d in ipairs(egg:GetDescendants()) do
+                if d:IsA("BasePart") then target = d; break end
+            end
+        end
+        if not target or not target:IsA("BasePart") then return false end
+        for i = 1, RP.touchSpamCount do
+            pcall(function()
+                target:FireTouchInterest(root, 0, 1)
+                task.wait(RP.touchSpamDelay)
+                target:FireTouchInterest(root, 1, 0)
+            end)
+            if not RP.running then return false end
+        end
+        return true
+    end
+    local function findPrompt(egg)
+        if not egg then return nil end
+        local p = egg:FindFirstChildOfClass("ProximityPrompt")
+        if p then return p end
+        for _, d in ipairs(egg:GetDescendants()) do
+            if d:IsA("ProximityPrompt") then return d end
+        end
+        return nil
+    end
+    local function findClickDetector(egg)
+        if not egg then return nil end
+        for _, d in ipairs(egg:GetDescendants()) do
+            if d:IsA("ClickDetector") then return d end
+        end
+        return nil
+    end
+    local function singleGrabAttempt(egg, n)
+        if not egg or not egg.Parent then return false end
+        local prompt = findPrompt(egg)
+        if prompt then
+            holdPromptFull(prompt, "a" .. n)
+            task.wait(RP.grabVerifyDelay)
+            if eggIsGone(egg) then RP.lastGrabStrategy = "hold"; return true end
+            if RP.legacyFire then
+                legacyFire(prompt, "a" .. n)
+                task.wait(RP.grabVerifyDelay)
+                if eggIsGone(egg) then RP.lastGrabStrategy = "legacy"; return true end
+            end
+            touchSpam(egg, "a" .. n)
+            task.wait(RP.grabVerifyDelay)
+            if eggIsGone(egg) then RP.lastGrabStrategy = "touch"; return true end
+        end
+        local cd = findClickDetector(egg)
+        if cd then
+            pcall(function() fireclickdetector(cd) end)
+            task.wait(RP.grabVerifyDelay)
+            if eggIsGone(egg) then RP.lastGrabStrategy = "click"; return true end
+        end
+        touchSpam(egg, "b" .. n)
+        task.wait(RP.grabVerifyDelay)
+        if eggIsGone(egg) then RP.lastGrabStrategy = "touch-part"; return true end
+        return false
+    end
+    local function tryGrab(egg, eggPos)
+        if not egg then return false end
+        if RP.carryConfirm and RP.carrying then RP.carryBlocks = RP.carryBlocks + 1; return false end
+        local total = 0
+        for a = 1, RP.grabRetries do
+            if not RP.running then return false end
+            if not egg.Parent then return true end
+            total = total + 1
+            if singleGrabAttempt(egg, a) then RP.lastGrabAttempts = total; return true end
+            task.wait(RP.grabRetryDelay)
+        end
+        if RP.reapproachOnFail and eggPos and egg.Parent then
+            for r = 1, RP.reapproachAtt do
+                if not RP.running then return false end
+                if not egg.Parent then return true end
+                snapFinal(eggPos)
+                task.wait(RP.settleOnRetry)
+                for a = 1, RP.grabRetries do
+                    if not RP.running then return false end
+                    if not egg.Parent then return true end
+                    total = total + 1
+                    if singleGrabAttempt(egg, a) then
+                        RP.lastGrabAttempts = total
+                        RP.eggsRecovered = RP.eggsRecovered + 1
+                        return true
+                    end
+                    task.wait(RP.grabRetryDelay)
+                end
+            end
+        end
+        RP.lastGrabAttempts = total
+        return false
+    end
+    local function placeEgg()
+        if not RP.ranchCFrame then return false end
+        local placed = false
+        pcall(function()
+            for _, d in ipairs(Workspace:GetDescendants()) do
+                if d:IsA("ProximityPrompt") then
+                    local txt = (d.ActionText or ""):lower()
+                    for _, w in ipairs(RP.placeWords) do
+                        if txt:find(w) then
+                            local parent_pos = getPos(d.Parent)
+                            if parent_pos and (parent_pos - RP.ranchCFrame.Position).Magnitude < 40 then
+                                holdPromptFull(d, "place")
+                                placed = true
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        return placed
+    end
+    local function autofarmLoop()
+        cacheRanch()
+        refreshBaseHull(true)
+        rplog("autofarm loop started")
+        while RP.running do
+            local root = MOD.getHRP()
+            if not root then task.wait(0.2); continue end
+            read_ping(); refreshBaseHull()
+            if RP.carryConfirm and RP.carrying then
+                RP.lastAction = "waiting for carry confirm"
+                local ok = confirmCarry(RP.carryEgg)
+                if not ok then
+                    RP.carryBlocks = RP.carryBlocks + 1
+                    RP.carrying = false; RP.carryEgg = nil
+                end
+                task.wait(RP.phaseSettleShort)
+                if not RP.running then break end
+            end
+            RP.loops = RP.loops + 1
+            RP.lastAction = "scanning"
+            task.wait(currentScanInterval())
+            if not RP.running then break end
+            local egg = findBestEgg()
+            if not egg then RP.lastAction = "no eligible egg"; task.wait(0.4); continue end
+            RP.eggsFound = RP.eggsFound + 1
+            RP.currentTarget = egg
+            RP.lastAction = "egg found"
+            rplog("egg found: " .. egg.Name)
+            task.wait(RP.phaseSettleShort)
+            if not RP.running then break end
+            local eggPos = getPos(egg)
+            if not eggPos then RP.lastError = "egg has no position"; task.wait(0.2); continue end
+            if isInsideBase(eggPos) then
+                RP.lastAction = "target inside base — skipping"
+                RP.attemptedTargets[egg] = tick()
+                task.wait(RP.phaseSettleShort); continue
+            end
+            local drop = math.floor(RP.dropBack or 0)
+            RP.lastAction = drop > 0 and string.format("drop-back %d", drop) or "teleport egg"
+            pcall(tpWithDropBack, eggPos)
+            task.wait(RP.phaseSettleShort)
+            if not RP.running then break end
+            if drop > 0 then
+                RP.lastAction = "approach"
+                pcall(tpApproach, eggPos)
+                task.wait(RP.phaseSettleShort)
+            end
+            if not RP.running then break end
+            RP.lastAction = "final snap"
+            pcall(snapFinal, eggPos)
+            task.wait(RP.phaseSettleShort)
+            if not RP.running then break end
+            RP.lastAction = "grabbing"
+            local grabbed = false
+            pcall(function() grabbed = tryGrab(egg, eggPos) end)
+            if grabbed then
+                RP.eggsGrabbed = RP.eggsGrabbed + 1
+                RP.carrying = true; RP.carryEgg = egg
+                RP.lastAction = "grabbed via " .. tostring(RP.lastGrabStrategy)
+                rplog("grabbed via " .. tostring(RP.lastGrabStrategy) .. " in " .. tostring(RP.lastGrabAttempts) .. " attempts")
+                RP.attemptedTargets[egg] = tick()
+                confirmCarry(egg)
+            else
+                RP.eggsFailed = RP.eggsFailed + 1
+                RP.attemptedTargets[egg] = tick()
+                RP.lastAction = "grab failed"
+                rplog("grab FAILED after " .. tostring(RP.lastGrabAttempts) .. " attempts")
+            end
+            task.wait(RP.postGrabSettle)
+            if not RP.running then break end
+            if RP.ranchCFrame and grabbed then
+                RP.lastAction = "return"
+                pcall(tpReturn)
+                task.wait(RP.phaseSettleLong)
+                if RP.autoPlace and RP.running then
+                    RP.lastAction = "placing"
+                    local okPlace = false
+                    pcall(function() okPlace = placeEgg() end)
+                    if okPlace then RP.eggsPlaced = RP.eggsPlaced + 1 end
+                    confirmPlaced()
+                    RP.carrying = false; RP.carryEgg = nil
+                    rplog("place cycle complete")
+                    task.wait(RP.phaseSettleShort)
+                else
+                    RP.carrying = false; RP.carryEgg = nil
+                end
+            end
+            RP.currentTarget = nil
+        end
+        RP.lastAction = "stopped"
+        rplog("autofarm loop stopped")
+    end
+
+    Hub:AddSection(page, "Autofarm")
+    Hub:AddToggle(page, "Autofarm ON/OFF", false, function(on)
+        if on then
+            recacheRanch(); refreshBaseHull(true)
+            RP.running = true
+            RP.lastError = nil
+            RP.carrying = false; RP.carryEgg = nil
+            RP.attemptedTargets = {}
+            State.Conn.rpThread = task.spawn(function() pcall(autofarmLoop) end)
+        else
+            RP.running = false
+            RP.lastAction = "stopped"
+        end
+    end)
+
+    Hub:AddSection(page, "Cadence")
+    Hub:AddToggle(page, "Adaptive scan (ping-aware)", true, function(on) RP.pingAdaptive = on end)
+    Hub:AddSlider(page, "Scan min (x10 ms)", 1, 20, 10, function(v) RP.scanIntervalMin = v / 10 end)
+    Hub:AddSlider(page, "Scan max (x10 ms)", 1, 30, 6,  function(v) RP.scanIntervalMax = v / 10 end)
+
+    Hub:AddSection(page, "Teleport")
+    Hub:AddSlider(page, "Drop-back distance", 0, 5000, 1000, function(v) RP.dropBack = v end)
+    Hub:AddSlider(page, "Approach steps", 1, 10, 4, function(v) RP.approachSteps = v end)
+    Hub:AddSlider(page, "Prompt trigger range", 4, 20, 8, function(v) RP.promptRange = v end)
+    Hub:AddSlider(page, "Verify tolerance", 1, 20, 6, function(v) RP.verifyTol = v end)
+
+    Hub:AddSection(page, "Base exclusion")
+    Hub:AddSlider(page, "Base exclusion radius", 20, 400, 80, function(v)
+        RP.exclusionRadius = v
+        RP.minTargetDistance = math.max(RP.minTargetDistance, v - 20)
+    end)
+    Hub:AddSlider(page, "Min target distance", 20, 600, 60, function(v) RP.minTargetDistance = v end)
+    Hub:AddButton(page, "Rescan base hull", function()
+        refreshBaseHull(true)
+        rplog("base hull rescanned: " .. tostring(#RP.baseHullParts) .. " parts")
+    end)
+    Hub:AddButton(page, "Re-ranch", function() recacheRanch(); refreshBaseHull(true) end)
+
+    Hub:AddSection(page, "Prompt")
+    Hub:AddSlider(page, "Hold buffer (x100 s)", 0, 200, 45, function(v) RP.holdBuffer = v / 100 end)
+    Hub:AddSlider(page, "Latency padding (x100 s)", 0, 100, 20, function(v) RP.latencyPad = v / 100 end)
+    Hub:AddSlider(page, "Grab retries", 1, 10, 5, function(v) RP.grabRetries = v end)
+    Hub:AddToggle(page, "Legacy fire() fallback", true, function(on) RP.legacyFire = on end)
+    Hub:AddToggle(page, "Re-approach on fail", true, function(on) RP.reapproachOnFail = on end)
+    Hub:AddToggle(page, "Humanoid reset before hold", true, function(on) RP.humanoidReset = on end)
+
+    Hub:AddSection(page, "Carry")
+    Hub:AddToggle(page, "Carry gate (1 egg at a time)", true, function(on) RP.carryConfirm = on end)
+    Hub:AddToggle(page, "Auto-place at ranch", true, function(on) RP.autoPlace = on end)
+    Hub:AddButton(page, "Reset carry state", function()
+        RP.carrying = false; RP.carryEgg = nil; RP.lastAction = "carry reset"
+    end)
+
+    Hub:AddSection(page, "Session")
+    local statLbl = Instance.new("TextLabel")
+    statLbl.Size = UDim2.new(1, 0, 0, 140); statLbl.BackgroundColor3 = CONFIG.BG2; statLbl.BorderSizePixel = 0
+    statLbl.TextColor3 = CONFIG.Text; statLbl.Font = Enum.Font.Code; statLbl.TextSize = 10
+    statLbl.TextXAlignment = Enum.TextXAlignment.Left; statLbl.TextYAlignment = Enum.TextYAlignment.Top
+    statLbl.TextWrapped = true; statLbl.Text = "  session: loading..."; statLbl.Parent = page
+    corner(statLbl, 6)
+    local sp = Instance.new("UIPadding"); sp.PaddingTop = UDim.new(0, 6); sp.PaddingLeft = UDim.new(0, 8); sp.Parent = statLbl
+
+    Hub:AddSection(page, "Debug")
+    local debugLbl = Instance.new("TextLabel")
+    debugLbl.Size = UDim2.new(1, 0, 0, 140); debugLbl.BackgroundColor3 = CONFIG.BG2; debugLbl.BorderSizePixel = 0
+    debugLbl.TextColor3 = CONFIG.SubText; debugLbl.Font = Enum.Font.Code; debugLbl.TextSize = 9
+    debugLbl.TextXAlignment = Enum.TextXAlignment.Left; debugLbl.TextYAlignment = Enum.TextYAlignment.Top
+    debugLbl.TextWrapped = true; debugLbl.Text = "  debug: ready"; debugLbl.Parent = page
+    corner(debugLbl, 6)
+    local dp = Instance.new("UIPadding"); dp.PaddingTop = UDim.new(0, 6); dp.PaddingLeft = UDim.new(0, 8); dp.Parent = debugLbl
+
+    Hub:AddSection(page, "Utility")
+    Hub:AddButton(page, "Reset counters", function()
+        RP.eggsFound = 0; RP.eggsGrabbed = 0; RP.eggsPlaced = 0
+        RP.eggsSkipped = 0; RP.eggsFailed = 0; RP.eggsRecovered = 0
+        RP.eggsBaseBlocked = 0; RP.eggsBlacklisted = 0
+        RP.carryBlocks = 0; RP.teleportResnaps = 0; RP.loops = 0
+        RP.lastError = nil; RP.attemptedTargets = {}; RP.debugLines = {}
+    end)
+    Hub:AddButton(page, "Force grab nearest egg", function()
+        task.spawn(function()
+            local egg = findBestEgg(); if not egg then return end
+            local pos = getPos(egg); if not pos then return end
+            snapFinal(pos); task.wait(0.1); tryGrab(egg, pos)
+        end)
+    end)
+
+    State.Conn.rpStats = task.spawn(function()
+        while debugLbl and debugLbl.Parent do
+            local elapsed = tick() - RP.sessionStart
+            local mins = math.floor(elapsed / 60); local secs = math.floor(elapsed % 60)
+            statLbl.Text = string.format(
+                "  status: %s\n  carry: %s\n  found: %d  grabbed: %d  placed: %d\n  skipped (base/bl): %d / %d\n  failed: %d  recovered: %d  blocks: %d\n  hold: %.2fs  drop: %d  ping: %.0fms\n  resnaps: %d  scan: %.2fs  loops: %d\n  base hull: %d parts r=%.0f",
+                RP.lastAction,
+                RP.carrying and ("HOLDING " .. (RP.carryEgg and RP.carryEgg.Name or "?")) or "empty",
+                RP.eggsFound, RP.eggsGrabbed, RP.eggsPlaced,
+                RP.eggsBaseBlocked, RP.eggsBlacklisted,
+                RP.eggsFailed, RP.eggsRecovered, RP.carryBlocks,
+                RP.lastPromptHold, math.floor(RP.dropBack or 0), RP.smoothedPing,
+                RP.teleportResnaps, currentScanInterval(), RP.loops,
+                #RP.baseHullParts, RP.baseHullRadius or 0)
+            debugLbl.Text = #RP.debugLines > 0 and table.concat(RP.debugLines, "\n") or "  debug: ready"
+            task.wait(0.35)
+        end
+    end)
+
+    State.Conn.rpKeys = UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Enum.KeyCode.RightControl then
+            recacheRanch(); refreshBaseHull(true)
+            rplog("re-ranch + rescan via key")
+        elseif input.KeyCode == Enum.KeyCode.RightAlt then
+            task.spawn(function()
+                local egg = findBestEgg(); if not egg then return end
+                local pos = getPos(egg); if not pos then return end
+                snapFinal(pos); task.wait(0.1); tryGrab(egg, pos)
+            end)
+        end
+    end)
+end
+GAMES["Ride a Pet"].Build = buildRideAPet
+
+--=====================================================================
+-- BUILD ANYTHING MODULE
+--=====================================================================
+local function buildBuildAnything(page, ctx)
+    local Hub = ctx.Hub
+    local BA = {
+        running = false,
+        placeDelay = 0,
+        pivotBeforePlace = true,
+        sessionStart = tick(),
+        buildsRun = 0,
+        blocksPlaced = 0,
+        blocksDeleted = 0,
+        lastAction = "idle",
+        lastError = nil,
+        victim = nil,
+        debugLines = {},
+    }
+    local function balog(m)
+        local t = os.date("%H:%M:%S")
+        table.insert(BA.debugLines, string.format("[%s] %s", t, m))
+        while #BA.debugLines > 14 do table.remove(BA.debugLines, 1) end
+    end
+    local function getPlaceRemote()
+        local e = ReplicatedStorage:FindFirstChild("Events")
+        return e and e:FindFirstChild("Place")
+    end
+    local function getDestroyRemote()
+        local e = ReplicatedStorage:FindFirstChild("Events")
+        return e and e:FindFirstChild("DestroyBlock")
+    end
+    local function placeBlock(blockName, cf)
+        local remote = getPlaceRemote()
+        if not remote then return false end
+        local ok = pcall(function()
+            remote:InvokeServer(blockName, cf, Workspace.Baseplate)
+        end)
+        if ok then BA.blocksPlaced = BA.blocksPlaced + 1 end
+        return ok
+    end
+    local function rebuildFromTable(list, label)
+        local char = LocalPlayer.Character
+        if not char then balog("no character"); return end
+        BA.lastAction = "building: " .. (label or "custom")
+        BA.running = true
+        local startCount = BA.blocksPlaced
+        for i, entry in ipairs(list) do
+            if not BA.running then break end
+            local blockName = entry[1]
+            local cf        = entry[2]
+            if blockName and cf then
+                if BA.pivotBeforePlace then
+                    pcall(function() char:PivotTo(cf) end)
+                end
+                if BA.placeDelay > 0 then
+                    task.wait(BA.placeDelay)
+                else
+                    task.wait()
+                end
+                pcall(placeBlock, blockName, cf)
+            end
+        end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.Anchored = false end
+        BA.running = false
+        BA.buildsRun = BA.buildsRun + 1
+        BA.lastAction = string.format("built %s (%d blocks)", label or "custom", BA.blocksPlaced - startCount)
+        balog(BA.lastAction)
+    end
+    local function deletePlotFor(plotName)
+        local destroy = getDestroyRemote()
+        if not destroy then balog("DestroyBlock remote missing"); return 0 end
+        local built = Workspace:FindFirstChild("Built")
+        if not built then balog("Workspace.Built missing"); return 0 end
+        local plot = plotName and built:FindFirstChild(plotName) or nil
+        local count = 0
+        if plot then
+            for _, block in ipairs(plot:GetChildren()) do
+                count = count + 1
+                task.spawn(function()
+                    pcall(function() destroy:InvokeServer(block) end)
+                end)
+            end
+        else
+            for _, p in ipairs(built:GetChildren()) do
+                for _, block in ipairs(p:GetChildren()) do
+                    count = count + 1
+                    task.spawn(function()
+                        pcall(function() destroy:InvokeServer(block) end)
+                    end)
+                end
+            end
+        end
+        BA.blocksDeleted = BA.blocksDeleted + count
+        BA.lastAction = "deleted " .. count .. " blocks"
+        balog(BA.lastAction)
+        return count
+    end
+
+    local registry = {}
+
+    -- Subtovaehz: 12-wide ring at x=944, z from -968 to -924
+    local t = {}
+    for _, z in ipairs({-968, -964, -960, -956, -952, -948, -944, -940, -936, -932, -928, -924}) do
+        table.insert(t, { "Cobblestone", CFrame.new(944, 2, z) })
+    end
+    for _, y in ipairs({6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46}) do
+        table.insert(t, { "Cobblestone", CFrame.new(944, y, -968) })
+        table.insert(t, { "Cobblestone", CFrame.new(944, y, -924) })
+    end
+    for _, z in ipairs({-964, -960, -956, -952, -948, -944, -940, -936, -932, -928}) do
+        table.insert(t, { "Cobblestone", CFrame.new(944, 46, z) })
+    end
+    registry["Subtovaehz (ring)"] = t
+
+    -- Castle: perimeter wall around x=200..228, z=-60..-184
+    local castleT = {}
+    local zs = {}
+    for z = -60, -184, -4 do table.insert(zs, z) end
+    for _, y in ipairs({2, 6, 10, 14, 18, 22, 26, 30, 34, 38}) do
+        for _, z in ipairs(zs) do
+            table.insert(castleT, { "Mossy Stone Blocks", CFrame.new(212, y, z) })
+        end
+    end
+    registry["Castle (simple walls)"] = castleT
+
+    -- Cool Pattern: concentric wool spiral
+    local coolT = {}
+    local cx, cz = 168, 152
+    local colors = { "Magenta Wool", "Yellow Wool", "Cyan Wool", "Blue Wool", "Bricks" }
+    local idx = 1
+    for r = 20, 44, 4 do
+        local c = colors[((idx - 1) % #colors) + 1]
+        idx = idx + 1
+        table.insert(coolT, { c, CFrame.new(cx, 2, cz + r) })
+        table.insert(coolT, { c, CFrame.new(cx, 2, cz - r) })
+        table.insert(coolT, { c, CFrame.new(cx + r, 2, cz) })
+        table.insert(coolT, { c, CFrame.new(cx - r, 2, cz) })
+    end
+    registry["Cool Pattern (Wool)"] = coolT
+
+    -- Claude's House V2: 4-wall outline + corner pillars + glass bands + pink trim
+    local houseT = {}
+    for x = 628, 660, 4 do
+        table.insert(houseT, { "Cobblestone", CFrame.new(x, 2, 60) })
+        table.insert(houseT, { "Cobblestone", CFrame.new(x, 2, 92) })
+    end
+    for z = 64, 88, 4 do
+        table.insert(houseT, { "Cobblestone", CFrame.new(628, 2, z) })
+        table.insert(houseT, { "Cobblestone", CFrame.new(660, 2, z) })
+    end
+    for _, y in ipairs({6, 10, 14}) do
+        table.insert(houseT, { "Oak Log", CFrame.new(628, y, 60) })
+        table.insert(houseT, { "Oak Log", CFrame.new(660, y, 60) })
+        table.insert(houseT, { "Oak Log", CFrame.new(628, y, 92) })
+        table.insert(houseT, { "Oak Log", CFrame.new(660, y, 92) })
+    end
+    for x = 636, 652, 8 do
+        table.insert(houseT, { "Glass", CFrame.new(x, 10, 60) })
+        table.insert(houseT, { "Glass", CFrame.new(x, 10, 92) })
+    end
+    for z = 68, 84, 8 do
+        table.insert(houseT, { "Glass", CFrame.new(628, 10, z) })
+        table.insert(houseT, { "Glass", CFrame.new(660, 10, z) })
+    end
+    for x = 628, 660, 4 do
+        table.insert(houseT, { "Pink Wool", CFrame.new(x, 18, 60) })
+        table.insert(houseT, { "Pink Wool", CFrame.new(x, 18, 92) })
+    end
+    registry["Claude's House V2"] = houseT
+
+    Hub:AddSection(page, "Build — presets")
+    for name, list in pairs(registry) do
+        Hub:AddButton(page, "Build: " .. name .. " (" .. #list .. ")", function()
+            task.spawn(function() rebuildFromTable(list, name) end)
+        end)
+    end
+
+    Hub:AddSection(page, "Build — custom")
+    local customBox = Hub:AddTextBox(page, 'paste: { {"Bricks", CFrame.new(100, 5, 100)}, ... }')
+    Hub:AddButton(page, "Build from pasted table", function()
+        local src = customBox.Text
+        if #src < 10 then balog("paste too short"); return end
+        local ok, tbl = pcall(function()
+            local f = loadstring("return " .. src)
+            return f and f()
+        end)
+        if ok and type(tbl) == "table" then
+            task.spawn(function() rebuildFromTable(tbl, "custom") end)
+            balog("custom build queued (" .. #tbl .. " blocks)")
+        else
+            balog("table parse failed: " .. tostring(tbl))
+        end
+    end)
+
+    Hub:AddSection(page, "Delete")
+    Hub:AddButton(page, "Delete ALL plots", function()
+        task.spawn(function() deletePlotFor(nil) end)
+    end)
+    local victimBox = Hub:AddTextBox(page, "victim name (partial)")
+    Hub:AddButton(page, "Lock victim", function()
+        BA.victim = nil
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Name:lower():find(victimBox.Text:lower(), 1, true) then
+                BA.victim = plr; break
+            end
+        end
+        balog("victim set: " .. (BA.victim and BA.victim.Name or "none"))
+    end)
+    Hub:AddButton(page, "Delete locked victim plot", function()
+        if not BA.victim then balog("no victim locked"); return end
+        task.spawn(function() deletePlotFor(BA.victim.Name) end)
+    end)
+
+    Hub:AddSection(page, "Config")
+    Hub:AddToggle(page, "Pivot char before each place", true, function(on) BA.pivotBeforePlace = on end)
+    Hub:AddSlider(page, "Place delay (x10 ms)", 0, 50, 0, function(v) BA.placeDelay = v / 10 end)
+    Hub:AddButton(page, "Stop current build", function()
+        BA.running = false
+        BA.lastAction = "stopped"
+    end)
+
+    Hub:AddSection(page, "Session")
+    local statLbl = Instance.new("TextLabel")
+    statLbl.Size = UDim2.new(1, 0, 0, 100); statLbl.BackgroundColor3 = CONFIG.BG2; statLbl.BorderSizePixel = 0
+    statLbl.TextColor3 = CONFIG.Text; statLbl.Font = Enum.Font.Code; statLbl.TextSize = 11
+    statLbl.TextXAlignment = Enum.TextXAlignment.Left; statLbl.TextYAlignment = Enum.TextYAlignment.Top
+    statLbl.TextWrapped = true; statLbl.Text = "  session: loading..."; statLbl.Parent = page
+    corner(statLbl, 6)
+    local sp = Instance.new("UIPadding"); sp.PaddingTop = UDim.new(0, 6); sp.PaddingLeft = UDim.new(0, 8); sp.Parent = statLbl
+
+    Hub:AddSection(page, "Debug")
+    local debugLbl = Instance.new("TextLabel")
+    debugLbl.Size = UDim2.new(1, 0, 0, 140); debugLbl.BackgroundColor3 = CONFIG.BG2; debugLbl.BorderSizePixel = 0
+    debugLbl.TextColor3 = CONFIG.SubText; debugLbl.Font = Enum.Font.Code; debugLbl.TextSize = 9
+    debugLbl.TextXAlignment = Enum.TextXAlignment.Left; debugLbl.TextYAlignment = Enum.TextYAlignment.Top
+    debugLbl.TextWrapped = true; debugLbl.Text = "  debug: ready"; debugLbl.Parent = page
+    corner(debugLbl, 6)
+    local dp = Instance.new("UIPadding"); dp.PaddingTop = UDim.new(0, 6); dp.PaddingLeft = UDim.new(0, 8); dp.Parent = debugLbl
+
+    State.Conn.baStats = task.spawn(function()
+        while debugLbl and debugLbl.Parent do
+            local elapsed = tick() - BA.sessionStart
+            local mins = math.floor(elapsed / 60); local secs = math.floor(elapsed % 60)
+            statLbl.Text = string.format(
+                "  session: %02d:%02d\n  builds run: %d\n  blocks placed: %d\n  blocks deleted: %d\n  status: %s\n  victim: %s",
+                mins, secs, BA.buildsRun, BA.blocksPlaced, BA.blocksDeleted,
+                BA.lastAction, BA.victim and BA.victim.Name or "none")
+            debugLbl.Text = #BA.debugLines > 0 and table.concat(BA.debugLines, "\n") or "  debug: ready"
+            task.wait(0.35)
+        end
+    end)
+
+    Hub:AddButton(page, "Reset counters", function()
+        BA.buildsRun = 0; BA.blocksPlaced = 0; BA.blocksDeleted = 0
+        BA.lastAction = "idle"; BA.lastError = nil; BA.debugLines = {}
+    end)
+end
+GAMES["Build Anything"].Build = buildBuildAnything
+
+--=====================================================================
+-- MISC MODULE
+--=====================================================================
+local function buildMisc(page, ctx)
+    local Hub = ctx.Hub
+
+    Hub:AddSection(page, "Player")
+    Hub:AddToggle(page, "Infinite jump (airborne only)", false, function(on)
+        if State.Conn.miscInfJump then State.Conn.miscInfJump:Disconnect(); State.Conn.miscInfJump = nil end
+        if not on then return end
+        State.Conn.miscInfJump = UserInputService.JumpRequest:Connect(function()
+            local hum = MOD.getHum()
+            if hum and hum.FloorMaterial == Enum.Material.Air then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end)
+    Hub:AddSlider(page, "WalkSpeed", 16, 120, 16, function(v)
+        local hum = MOD.getHum(); if hum then hum.WalkSpeed = v end
+    end)
+    Hub:AddSlider(page, "JumpPower", 50, 200, 50, function(v)
+        local hum = MOD.getHum(); if hum then hum.UseJumpPower = true; hum.JumpPower = v end
+    end)
+    Hub:AddButton(page, "Reset character", function()
+        local hum = MOD.getHum(); if hum then hum.Health = 0 end
+    end)
+    Hub:AddToggle(page, "Anti-AFK", true, function(on)
+        if State.Conn.miscAfk then State.Conn.miscAfk:Disconnect(); State.Conn.miscAfk = nil end
+        if not on then return end
+        State.Conn.miscAfk = LocalPlayer.Idled:Connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+    end)
+
+    Hub:AddSection(page, "Teleport")
+    Hub:AddToggle(page, "Click-to-teleport (hold LeftAlt + click)", false, function(on)
+        if State.Conn.clickTp then State.Conn.clickTp:Disconnect(); State.Conn.clickTp = nil end
+        if not on then return end
+        State.Conn.clickTp = UserInputService.InputBegan:Connect(function(input, gp)
+            if gp then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+            and UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) then
+                local m = LocalPlayer:GetMouse()
+                if m.Hit then MOD.physicsTP(m.Hit) end
+            end
+        end)
+    end)
+    local tpBox = Hub:AddTextBox(page, "CFrame.new(x, y, z)")
+    Hub:AddButton(page, "TP → custom CFrame", function()
+        local ok, cf = pcall(function()
+            local f = loadstring("return " .. tpBox.Text)
+            return f and f()
+        end)
+        if ok and typeof(cf) == "CFrame" then MOD.physicsTP(cf) end
+    end)
+    Hub:AddButton(page, "Print my CFrame (F9)", function()
+        local hrp = MOD.getHRP()
+        if hrp then print("-- AXION MISC --"); print(hrp.CFrame) end
+    end)
+
+    Hub:AddSection(page, "Visual")
+    Hub:AddToggle(page, "Fullbright", false, function(on)
+        local saved = State.Conn.miscLightSaved
+        if on then
+            if not saved then
+                State.Conn.miscLightSaved = {
+                    Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+                    Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd,
+                }
+            end
+            Lighting.Ambient = Color3.fromRGB(178,178,178); Lighting.OutdoorAmbient = Color3.fromRGB(178,178,178)
+            Lighting.Brightness = 3; Lighting.ClockTime = 14; Lighting.FogEnd = 1e6
+        elseif saved then
+            for k, v in pairs(saved) do pcall(function() Lighting[k] = v end) end
+            State.Conn.miscLightSaved = nil
+        end
+    end)
+
+    Hub:AddSection(page, "Server")
+    Hub:AddButton(page, "Rejoin current server", function()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end)
+    Hub:AddButton(page, "Server hop (smallest)", function()
+        local ok, servers = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet(
+                "https://games.roblox.com/v1/games/" .. game.PlaceId ..
+                "/servers/Public?sortOrder=Asc&limit=100"))
+        end)
+        if ok and servers and servers.data then
+            for _, srv in ipairs(servers.data) do
+                if srv.playing < srv.maxPlayers and srv.id ~= game.JobId then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, LocalPlayer)
+                    return
+                end
+            end
+        end
+    end)
+    Hub:AddButton(page, "Copy JobId to clipboard", function()
+        if FEATURES.clipboard then setclipboard(game.JobId) else print("JobId: " .. game.JobId) end
+    end)
+    local jobBox = Hub:AddTextBox(page, "Paste JobId to join")
+    Hub:AddButton(page, "Join by JobId", function()
+        if #jobBox.Text > 5 then
+            pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, jobBox.Text, LocalPlayer) end)
+        end
+    end)
+end
+
+--=====================================================================
+-- SETTINGS MODULE
+--=====================================================================
+local function buildSettings(page, ctx)
+    local Hub = ctx.Hub
+    Hub:AddSection(page, "UI")
+    Hub:AddSlider(page, "Window width", 480, 900, CONFIG.W, function(v)
+        if State.UiVisible then
+            Hub.Window.Size = UDim2.fromOffset(v, Hub.Window.Size.Y.Offset)
+            CONFIG.W = v
+        end
+    end)
+    Hub:AddSlider(page, "Window height", 320, 640, CONFIG.H, function(v)
+        if State.UiVisible then
+            Hub.Window.Size = UDim2.fromOffset(Hub.Window.Size.X.Offset, v)
+            CONFIG.H = v
+        end
+    end)
+    Hub:AddButton(page, "Toggle keybind: " .. CONFIG.ToggleKey.Name, function()
+        local cycle = {
+            Enum.KeyCode.RightShift, Enum.KeyCode.LeftShift,
+            Enum.KeyCode.RightControl, Enum.KeyCode.LeftControl,
+            Enum.KeyCode.Insert, Enum.KeyCode.Delete, Enum.KeyCode.Home,
+        }
+        local idx = 1
+        for i, k in ipairs(cycle) do if k == CONFIG.ToggleKey then idx = i; break end end
+        idx = (idx % #cycle) + 1
+        CONFIG.ToggleKey = cycle[idx]
+        Hub:AddLabel(page, "  toggle key → " .. CONFIG.ToggleKey.Name, 18)
+    end)
+
+    Hub:AddSection(page, "Loader")
+    Hub:AddSlider(page, "Loading screen duration (s)", 1, 10, math.floor(CONFIG.LoaderTime), function(v)
+        CONFIG.LoaderTime = v
+    end)
+
+    Hub:AddSection(page, "Executor")
+    Hub:AddLabel(page,
+        string.format("executor: %s\nqueue: %s  ·  gethui: %s\ntouch: %s  ·  prox: %s\ndrawing: %s  ·  clipboard: %s",
+            EXECUTOR, tostring(FEATURES.queue), tostring(FEATURES.gethui),
+            tostring(FEATURES.firetouch), tostring(FEATURES.fireprox),
+            tostring(FEATURES.drawing), tostring(FEATURES.clipboard)), 70)
+
+    Hub:AddSection(page, "About")
+    Hub:AddLabel(page,
+        string.format("%s v%s\nmodules: Arsenal · Jailbreak · DOORS · Blox Fruits\nMM2 · Ride a Pet · Build Anything · Misc",
+            CONFIG.Name, CONFIG.Version), 65)
+end
+
+--=====================================================================
+-- JOIN-ON-CLICK
+--=====================================================================
+local function isInGame(name)
+    local info = GAMES[name]; if not info then return false end
+    for _, id in ipairs(info.PlaceIds) do if id == game.PlaceId then return true end end
+    return false
+end
+local function joinAndRun(name)
+    local info = GAMES[name]
+    if not info or not info.JoinPlaceId then return false end
+    _G.AXION_AUTORUN = name
+    local payload = string.format("_G.AXION_AUTORUN = %q; loadstring(game:HttpGet(%q))()", name, CONFIG.SelfUrl)
+    local queued = queueAfterTeleport(payload)
+    if not queued then
+        local warn = Instance.new("TextLabel")
+        warn.Size = UDim2.new(1, 0, 0, 20); warn.BackgroundTransparency = 1
+        warn.Font = Enum.Font.Gotham; warn.TextSize = 12; warn.TextColor3 = CONFIG.Danger
+        warn.TextXAlignment = Enum.TextXAlignment.Left
+        warn.Text = "  queue_on_teleport unavailable — re-exec hub on arrival"
+        warn.Parent = State.Tabs["Games"].page
+        task.delay(4, function() warn:Destroy() end)
+    end
+    pcall(function() TeleportService:Teleport(info.JoinPlaceId, LocalPlayer) end)
+    return true
+end
+local function currentGameKey()
+    local pid = game.PlaceId
+    for name, info in pairs(GAMES) do
+        for _, id in ipairs(info.PlaceIds) do
+            if id == pid then return name, info end
+        end
+    end
+    return nil, nil
+end
+
+--=====================================================================
+-- BOOT
+--=====================================================================
+buildLoadingScreen()
+local Hub = buildMainUi()
+
+local detected = currentGameKey()
+
+local home = Hub:AddTab("Home")
+Hub:AddSection(home.page, "Status")
+Hub:AddLabel(home.page,
+    "place: " .. tostring(game.PlaceId) ..
+    "\ndetected: " .. (detected or "unsupported") ..
+    "\nexecutor: " .. EXECUTOR, 50)
+Hub:AddSection(home.page, "Quick actions")
+Hub:AddButton(home.page, "Open Misc tab", function()
+    if State.Tabs["Misc"] then State.Tabs["Misc"].button.MouseButton1Click:Fire() end
+end)
+Hub:AddButton(home.page, "Open Games tab", function()
+    if State.Tabs["Games"] then State.Tabs["Games"].button.MouseButton1Click:Fire() end
+end)
+
+local gamesTab = Hub:AddTab("Games")
+Hub:AddSection(gamesTab.page, "Supported Games")
+for name, g in pairs(GAMES) do
+    local active = (detected == name)
+    local tag = active and "  ←  active" or ""
+    Hub:AddButton(gamesTab.page, name .. tag, function()
+        if isInGame(name) then
+            State.AutoRunName = name
+            if g.Build then
+                g.Build(gamesTab.page, {
+                    Hub = Hub, Config = CONFIG,
+                    Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient },
+                })
+            end
+        else
+            State.AutoRunName = name
+            if g.JoinPlaceId then joinAndRun(name) end
+        end
+    end)
+end
+
+local miscTab = Hub:AddTab("Misc")
+buildMisc(miscTab.page, {
+    Hub = Hub, Config = CONFIG,
+    Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient },
+})
+
+if detected == "Arsenal" or State.AutoRunName == "Arsenal" then
+    State.AutoRunName = "Arsenal"
+    local tt = Hub:AddTab("Arsenal")
+    buildArsenal(tt.page, { Hub = Hub, Config = CONFIG, Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient } })
+    State.Tabs["Arsenal"].button.MouseButton1Click:Fire()
+end
+if detected == "Jailbreak" or State.AutoRunName == "Jailbreak" then
+    State.AutoRunName = "Jailbreak"
+    local tt = Hub:AddTab("Jailbreak")
+    buildJailbreak(tt.page, { Hub = Hub, Config = CONFIG, Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient } })
+    State.Tabs["Jailbreak"].button.MouseButton1Click:Fire()
+end
+if detected == "Doors" or State.AutoRunName == "Doors" then
+    State.AutoRunName = "Doors"
+    local tt = Hub:AddTab("Doors")
+    buildDoors(tt.page, { Hub = Hub, Config = CONFIG, Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient } })
+    State.Tabs["Doors"].button.MouseButton1Click:Fire()
+end
+if detected == "Blox Fruits" or State.AutoRunName == "Blox Fruits" then
+    State.AutoRunName = "Blox Fruits"
+    local tt = Hub:AddTab("Blox Fruits")
+    buildBloxFruits(tt.page, { Hub = Hub, Config = CONFIG, Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient } })
+    State.Tabs["Blox Fruits"].button.MouseButton1Click:Fire()
+end
+if detected == "Murder Mystery 2" or State.AutoRunName == "Murder Mystery 2" then
+    State.AutoRunName = "Murder Mystery 2"
+    local tt = Hub:AddTab("MM2")
+    buildMM2(tt.page, { Hub = Hub, Config = CONFIG, Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient } })
+    State.Tabs["MM2"].button.MouseButton1Click:Fire()
+end
+if detected == "Ride a Pet" or State.AutoRunName == "Ride a Pet" then
+    State.AutoRunName = "Ride a Pet"
+    local tt = Hub:AddTab("Ride a Pet")
+    buildRideAPet(tt.page, { Hub = Hub, Config = CONFIG, Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient } })
+    State.Tabs["Ride a Pet"].button.MouseButton1Click:Fire()
+end
+if detected == "Build Anything" or State.AutoRunName == "Build Anything" then
+    State.AutoRunName = "Build Anything"
+    local tt = Hub:AddTab("Build Anything")
+    buildBuildAnything(tt.page, { Hub = Hub, Config = CONFIG, Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient } })
+    State.Tabs["Build Anything"].button.MouseButton1Click:Fire()
+end
+
+local settingsTab = Hub:AddTab("Settings")
+buildSettings(settingsTab.page, {
+    Hub = Hub, Config = CONFIG,
+    Util = { tween = tween, corner = corner, stroke = stroke, gradient = gradient },
+})
+
+State.Tabs["Home"].button.MouseButton1Click:Fire()
