@@ -1,15 +1,20 @@
 -- language: Lua (Luau), file: hub.lua, target: Roblox executor (Xeno / Synapse / Krnl / Fluxus)
 -- AXION HUB v1.8 — full rewrite.
 -- Modules: Jailbreak · DOORS · Blox Fruits · MM2 · Ride a Pet · Build Anything · Arsenal · Misc
-
---== SERVICES ==--
---== AXION KEY GATE — Panda Auth (PUSL-V4) ==--
+--== AXION KEY GATE v2 — Panda Auth (PUSL-V4) ==--
 -- Paste at the very top of hub.lua, above the SERVICES block.
+-- Flow: loading screen (2.2s) -> key GUI -> verify -> hub loads.
 
 local REQUIRE_HWID   = true
 local PANDA_SERVICE  = "awesomescrpt"
 local PANDA_API      = "https://pandadevelopment.net/v2_validation"
 local KEY_CACHE      = "axion_key.txt"
+local DISCORD_URL    = "https://discord.gg/ktDCYNBwqC"
+
+--== SERVICES ==--
+local TweenService   = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService    = game:GetService("HttpService")
 
 --== HWID ==--
 local function getHwid()
@@ -26,29 +31,21 @@ local function getHwid()
     for i = 1, #src do h = (h * 31 + src:byte(i)) % 2147483647 end
     return "hwid_" .. tostring(h)
 end
-
 local MY_HWID = getHwid()
 
 --== VALIDATE ==--
 local function validateKey(key, hwid)
     local url
     if REQUIRE_HWID then
-        url = PANDA_API .. "?key=" .. key
-              .. "&service=" .. PANDA_SERVICE
-              .. "&hwid=" .. hwid
+        url = PANDA_API .. "?key=" .. key .. "&service=" .. PANDA_SERVICE .. "&hwid=" .. hwid
     else
-        url = PANDA_API .. "?key=" .. key
-              .. "&service=" .. PANDA_SERVICE
+        url = PANDA_API .. "?key=" .. key .. "&service=" .. PANDA_SERVICE
     end
     local ok, res = pcall(function() return game:HttpGet(url) end)
     if not ok or not res then return false end
-    local ok2, data = pcall(function()
-        return game:GetService("HttpService"):JSONDecode(res)
-    end)
+    local ok2, data = pcall(function() return HttpService:JSONDecode(res) end)
     if not ok2 or not data then return false end
-    return data.V2_Authentication == "success"
-        or data.success == true
-        or data.valid == true
+    return data.V2_Authentication == "success" or data.success == true or data.valid == true
 end
 
 --== CACHE ==--
@@ -59,19 +56,133 @@ local function readCache()
     end
     return nil
 end
-local function writeCache(k)
-    if writefile then pcall(writefile, KEY_CACHE, k) end
-end
+local function writeCache(k) if writefile then pcall(writefile, KEY_CACHE, k) end end
 local function clearCache()
-    if delfile and isfile and isfile(KEY_CACHE) then
-        pcall(delfile, KEY_CACHE)
+    if delfile and isfile and isfile(KEY_CACHE) then pcall(delfile, KEY_CACHE) end
+end
+
+--== SHARED GUI PARENT ==--
+local function getParent()
+    if gethui then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
     end
+    if syn and syn.protect_gui then
+        local sg = Instance.new("ScreenGui")
+        syn.protect_gui(sg)
+        sg.Parent = game:GetService("CoreGui")
+        return game:GetService("CoreGui")
+    end
+    return game:GetService("CoreGui")
+end
+
+--== LOADING SCREEN ==--
+local function showLoadingScreen()
+    local sg = Instance.new("ScreenGui")
+    sg.Name           = "AXION_KG_LOAD_" .. tostring(math.random(1e6))
+    sg.ResetOnSpawn   = false
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder   = 99998
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if syn and syn.protect_gui then pcall(syn.protect_gui, sg) end
+    sg.Parent = getParent()
+
+    local backdrop = Instance.new("Frame")
+    backdrop.Size = UDim2.fromScale(1, 1)
+    backdrop.BackgroundColor3 = Color3.fromRGB(8, 9, 12)
+    backdrop.BorderSizePixel = 0
+    backdrop.Parent = sg
+
+    -- subtle radial glow
+    local glow = Instance.new("Frame")
+    glow.Size = UDim2.fromOffset(600, 600)
+    glow.Position = UDim2.new(0.5, -300, 0.5, -300)
+    glow.BackgroundColor3 = Color3.fromRGB(40, 70, 120)
+    glow.BackgroundTransparency = 1
+    glow.BorderSizePixel = 0
+    glow.Parent = backdrop
+    local gcorner = Instance.new("UICorner") gcorner.CornerRadius = UDim.new(1, 0) gcorner.Parent = glow
+    TweenService:Create(glow, TweenInfo.new(1.4, Enum.EasingStyle.Quart), { BackgroundTransparency = 0.75 }):Play()
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 48)
+    title.Position = UDim2.new(0, 0, 0.5, -46)
+    title.BackgroundTransparency = 1
+    title.Text = "AXION HUB"
+    title.TextColor3 = Color3.fromRGB(235, 240, 250)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 38
+    title.TextTransparency = 1
+    title.Parent = backdrop
+    TweenService:Create(title, TweenInfo.new(0.55), { TextTransparency = 0 }):Play()
+
+    local tagline = Instance.new("TextLabel")
+    tagline.Size = UDim2.new(1, 0, 0, 18)
+    tagline.Position = UDim2.new(0, 0, 0.5, 6)
+    tagline.BackgroundTransparency = 1
+    tagline.Text = "initializing secure session"
+    tagline.TextColor3 = Color3.fromRGB(150, 158, 175)
+    tagline.Font = Enum.Font.Gotham
+    tagline.TextSize = 12
+    tagline.TextTransparency = 1
+    tagline.Parent = backdrop
+    TweenService:Create(tagline, TweenInfo.new(0.55, Enum.EasingStyle.Quart, Enum.EasingDirection.Out, 0.15), { TextTransparency = 0 }):Play()
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(0, 260, 0, 4)
+    track.Position = UDim2.new(0.5, -130, 0.5, 44)
+    track.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
+    track.BorderSizePixel = 0
+    track.Parent = backdrop
+    local tc = Instance.new("UICorner") tc.CornerRadius = UDim.new(1, 0) tc.Parent = track
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(120, 180, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    local fc = Instance.new("UICorner") fc.CornerRadius = UDim.new(1, 0) fc.Parent = fill
+    local fg = Instance.new("UIGradient")
+    fg.Color = ColorSequence.new(Color3.fromRGB(120,180,255), Color3.fromRGB(180,220,255))
+    fg.Parent = fill
+
+    local pct = Instance.new("TextLabel")
+    pct.Size = UDim2.new(1, 0, 0, 16)
+    pct.Position = UDim2.new(0, 0, 0.5, 56)
+    pct.BackgroundTransparency = 1
+    pct.Text = "0%"
+    pct.TextColor3 = Color3.fromRGB(150, 158, 175)
+    pct.Font = Enum.Font.Code
+    pct.TextSize = 11
+    pct.Parent = backdrop
+
+    -- progress
+    local steps = { 0.15, 0.35, 0.58, 0.78, 0.94, 1.00 }
+    for i = 1, #steps do
+        TweenService:Create(fill, TweenInfo.new(0.32, Enum.EasingStyle.Quart), {
+            Size = UDim2.new(steps[i], 0, 1, 0)
+        }):Play()
+        pct.Text = math.floor(steps[i] * 100) .. "%"
+        task.wait(0.36)
+    end
+    task.wait(0.3)
+
+    -- fade out
+    TweenService:Create(backdrop, TweenInfo.new(0.4), { BackgroundTransparency = 1 }):Play()
+    for _, g in ipairs(backdrop:GetDescendants()) do
+        if g:IsA("TextLabel") then
+            pcall(function() TweenService:Create(g, TweenInfo.new(0.3), { TextTransparency = 1 }):Play() end)
+        elseif g:IsA("Frame") and g ~= backdrop then
+            pcall(function() TweenService:Create(g, TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play() end)
+        end
+    end
+    task.wait(0.45)
+    sg:Destroy()
 end
 
 --== KEY GUI ==--
 local function buildKeyGui(hwid)
-    local getKeyUrl = "https://ads.pandauth.com/getkey/" .. PANDA_SERVICE
-                      .. "?hwid=" .. hwid
+    local getKeyUrl = "https://ads.pandauth.com/getkey/" .. PANDA_SERVICE .. "?hwid=" .. hwid
 
     local sg = Instance.new("ScreenGui")
     sg.Name           = "AXION_KEYGATE_" .. tostring(math.random(1e6))
@@ -80,41 +191,50 @@ local function buildKeyGui(hwid)
     sg.DisplayOrder   = 99999
     sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     if syn and syn.protect_gui then pcall(syn.protect_gui, sg) end
-    if gethui then sg.Parent = gethui() else sg.Parent = game:GetService("CoreGui") end
+    sg.Parent = getParent()
 
     local backdrop = Instance.new("Frame")
-    backdrop.Name = "Backdrop"
     backdrop.Size = UDim2.fromScale(1, 1)
     backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
-    backdrop.BackgroundTransparency = 0.5
+    backdrop.BackgroundTransparency = 1
     backdrop.BorderSizePixel = 0
     backdrop.Parent = sg
+    TweenService:Create(backdrop, TweenInfo.new(0.35), { BackgroundTransparency = 0.55 }):Play()
 
     local frame = Instance.new("Frame")
-    frame.Name             = "Panel"
-    frame.Size             = UDim2.fromOffset(480, 420)
-    frame.Position         = UDim2.new(0.5, -240, 0.5, -210)
+    frame.Size             = UDim2.fromOffset(500, 470)
+    frame.Position         = UDim2.new(0.5, -250, 0.5, -200)
     frame.BackgroundColor3 = Color3.fromRGB(14, 16, 22)
     frame.BorderSizePixel  = 0
     frame.Active           = true
+    frame.BackgroundTransparency = 1
     frame.Parent           = sg
-    local fc = Instance.new("UICorner") fc.CornerRadius = UDim.new(0, 12) fc.Parent = frame
+    local fc = Instance.new("UICorner") fc.CornerRadius = UDim.new(0, 14) fc.Parent = frame
     local fs = Instance.new("UIStroke") fs.Color = Color3.fromRGB(120, 180, 255)
-    fs.Thickness = 1 fs.Transparency = 0.5 fs.Parent = frame
+    fs.Thickness = 1 fs.Transparency = 1 fs.Parent = frame
 
+    -- entrance tween
+    TweenService:Create(frame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+        BackgroundTransparency = 0,
+        Position = UDim2.new(0.5, -250, 0.5, -235),
+    }):Play()
+    TweenService:Create(fs, TweenInfo.new(0.4, Enum.EasingStyle.Quart), { Transparency = 0.5 }):Play()
+
+    -- accent strip
     local strip = Instance.new("Frame")
-    strip.Size = UDim2.new(1, 0, 0, 2)
+    strip.Size = UDim2.new(1, 0, 0, 3)
     strip.BackgroundColor3 = Color3.fromRGB(120, 180, 255)
     strip.BorderSizePixel = 0
     strip.Parent = frame
+    local sg2 = Instance.new("UICorner") sg2.CornerRadius = UDim.new(0, 14) sg2.Parent = strip
     local gc = Instance.new("UIGradient")
     gc.Color = ColorSequence.new(Color3.fromRGB(120,180,255), Color3.fromRGB(180,220,255))
     gc.Parent = strip
 
-    --===== DRAG HANDLE (title bar) =====--
+    --===== DRAG BAR =====--
     local dragBar = Instance.new("Frame")
     dragBar.Name = "DragBar"
-    dragBar.Size = UDim2.new(1, 0, 0, 60)
+    dragBar.Size = UDim2.new(1, -60, 0, 60)
     dragBar.BackgroundTransparency = 1
     dragBar.Parent = frame
 
@@ -138,10 +258,10 @@ local function buildKeyGui(hwid)
     subtitle.TextSize = 12
     subtitle.Parent = dragBar
 
-    --===== CLOSE BUTTON =====--
+    --===== CLOSE =====--
     local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.fromOffset(26, 26)
-    closeBtn.Position = UDim2.new(1, -34, 0, 12)
+    closeBtn.Size = UDim2.fromOffset(28, 28)
+    closeBtn.Position = UDim2.new(1, -40, 0, 16)
     closeBtn.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
     closeBtn.Text = "✕"
     closeBtn.TextColor3 = Color3.fromRGB(150, 158, 175)
@@ -152,15 +272,19 @@ local function buildKeyGui(hwid)
     closeBtn.Parent = frame
     local cbc = Instance.new("UICorner") cbc.CornerRadius = UDim.new(0, 6) cbc.Parent = closeBtn
     closeBtn.MouseEnter:Connect(function()
-        closeBtn.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
-        closeBtn.TextColor3 = Color3.fromRGB(235, 240, 250)
+        TweenService:Create(closeBtn, TweenInfo.new(0.12), {
+            BackgroundColor3 = Color3.fromRGB(200, 80, 80),
+            TextColor3 = Color3.fromRGB(235, 240, 250),
+        }):Play()
     end)
     closeBtn.MouseLeave:Connect(function()
-        closeBtn.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
-        closeBtn.TextColor3 = Color3.fromRGB(150, 158, 175)
+        TweenService:Create(closeBtn, TweenInfo.new(0.12), {
+            BackgroundColor3 = Color3.fromRGB(22, 25, 33),
+            TextColor3 = Color3.fromRGB(150, 158, 175),
+        }):Play()
     end)
 
-    --===== DRAG LOGIC =====--
+    --===== DRAG =====--
     local dragging = false
     local dragStart, startPos
     dragBar.InputBegan:Connect(function(input)
@@ -171,7 +295,7 @@ local function buildKeyGui(hwid)
             startPos  = frame.Position
         end
     end)
-    game:GetService("UserInputService").InputChanged:Connect(function(input)
+    UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
                       or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
@@ -181,7 +305,7 @@ local function buildKeyGui(hwid)
             )
         end
     end)
-    game:GetService("UserInputService").InputEnded:Connect(function(input)
+    UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
@@ -190,10 +314,10 @@ local function buildKeyGui(hwid)
 
     --===== STEP 1 =====--
     local step1 = Instance.new("TextLabel")
-    step1.Size = UDim2.new(1, -32, 0, 20)
-    step1.Position = UDim2.new(0, 16, 0, 78)
+    step1.Size = UDim2.new(1, -36, 0, 20)
+    step1.Position = UDim2.new(0, 18, 0, 84)
     step1.BackgroundTransparency = 1
-    step1.Text = "STEP 1 — GET YOUR KEY"
+    step1.Text = "STEP 1  ·  GET YOUR KEY"
     step1.TextColor3 = Color3.fromRGB(120, 180, 255)
     step1.Font = Enum.Font.GothamBold
     step1.TextSize = 11
@@ -201,10 +325,10 @@ local function buildKeyGui(hwid)
     step1.Parent = frame
 
     local hwidLbl = Instance.new("TextLabel")
-    hwidLbl.Size = UDim2.new(1, -32, 0, 16)
-    hwidLbl.Position = UDim2.new(0, 16, 0, 100)
+    hwidLbl.Size = UDim2.new(1, -36, 0, 16)
+    hwidLbl.Position = UDim2.new(0, 18, 0, 106)
     hwidLbl.BackgroundTransparency = 1
-    hwidLbl.Text = REQUIRE_HWID and ("your hwid:  " .. hwid) or "hwid-lock disabled"
+    hwidLbl.Text = REQUIRE_HWID and ("your hwid  ·  " .. hwid) or "hwid-lock disabled"
     hwidLbl.TextColor3 = Color3.fromRGB(150, 158, 175)
     hwidLbl.Font = Enum.Font.Code
     hwidLbl.TextSize = 11
@@ -213,38 +337,42 @@ local function buildKeyGui(hwid)
     hwidLbl.Parent = frame
 
     local urlBtn = Instance.new("TextButton")
-    urlBtn.Size = UDim2.new(1, -32, 0, 34)
-    urlBtn.Position = UDim2.new(0, 16, 0, 122)
+    urlBtn.Size = UDim2.new(1, -36, 0, 38)
+    urlBtn.Position = UDim2.new(0, 18, 0, 128)
     urlBtn.BackgroundColor3 = Color3.fromRGB(40, 70, 120)
-    urlBtn.Text = "copy key URL"
+    urlBtn.Text = "copy key URL  →"
     urlBtn.TextColor3 = Color3.fromRGB(235, 240, 250)
     urlBtn.Font = Enum.Font.GothamMedium
     urlBtn.TextSize = 13
     urlBtn.BorderSizePixel = 0
     urlBtn.AutoButtonColor = false
     urlBtn.Parent = frame
-    local ubc = Instance.new("UICorner") ubc.CornerRadius = UDim.new(0, 6) ubc.Parent = urlBtn
+    local ubc = Instance.new("UICorner") ubc.CornerRadius = UDim.new(0, 8) ubc.Parent = urlBtn
     local ubs = Instance.new("UIStroke")
     ubs.Color = Color3.fromRGB(120, 180, 255) ubs.Thickness = 1 ubs.Transparency = 0.6 ubs.Parent = urlBtn
-    urlBtn.MouseEnter:Connect(function() urlBtn.BackgroundColor3 = Color3.fromRGB(60, 100, 160) end)
-    urlBtn.MouseLeave:Connect(function() urlBtn.BackgroundColor3 = Color3.fromRGB(40, 70, 120) end)
+    urlBtn.MouseEnter:Connect(function()
+        TweenService:Create(urlBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(60, 100, 160) }):Play()
+    end)
+    urlBtn.MouseLeave:Connect(function()
+        TweenService:Create(urlBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(40, 70, 120) }):Play()
+    end)
     urlBtn.MouseButton1Click:Connect(function()
         if setclipboard then
             pcall(setclipboard, getKeyUrl)
-            urlBtn.Text = "✓ copied — open it in your browser"
-            task.delay(2.5, function() urlBtn.Text = "copy key URL" end)
+            urlBtn.Text = "✓  copied — open in your browser"
+            task.delay(2.5, function() urlBtn.Text = "copy key URL  →" end)
         else
-            urlBtn.Text = "no clipboard — see footer URL"
-            task.delay(3, function() urlBtn.Text = "copy key URL" end)
+            urlBtn.Text = "no clipboard — see footer"
+            task.delay(3, function() urlBtn.Text = "copy key URL  →" end)
         end
     end)
 
     local rawUrlLbl = Instance.new("TextLabel")
-    rawUrlLbl.Size = UDim2.new(1, -32, 0, 16)
-    rawUrlLbl.Position = UDim2.new(0, 16, 0, 160)
+    rawUrlLbl.Size = UDim2.new(1, -36, 0, 14)
+    rawUrlLbl.Position = UDim2.new(0, 18, 0, 168)
     rawUrlLbl.BackgroundTransparency = 1
     rawUrlLbl.Text = getKeyUrl
-    rawUrlLbl.TextColor3 = Color3.fromRGB(90, 100, 120)
+    rawUrlLbl.TextColor3 = Color3.fromRGB(80, 90, 110)
     rawUrlLbl.Font = Enum.Font.Code
     rawUrlLbl.TextSize = 9
     rawUrlLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -253,10 +381,10 @@ local function buildKeyGui(hwid)
 
     --===== STEP 2 =====--
     local step2 = Instance.new("TextLabel")
-    step2.Size = UDim2.new(1, -32, 0, 20)
-    step2.Position = UDim2.new(0, 16, 0, 186)
+    step2.Size = UDim2.new(1, -36, 0, 20)
+    step2.Position = UDim2.new(0, 18, 0, 196)
     step2.BackgroundTransparency = 1
-    step2.Text = "STEP 2 — PASTE YOUR KEY"
+    step2.Text = "STEP 2  ·  PASTE YOUR KEY"
     step2.TextColor3 = Color3.fromRGB(120, 180, 255)
     step2.Font = Enum.Font.GothamBold
     step2.TextSize = 11
@@ -264,8 +392,8 @@ local function buildKeyGui(hwid)
     step2.Parent = frame
 
     local keyBox = Instance.new("TextBox")
-    keyBox.Size = UDim2.new(1, -32, 0, 36)
-    keyBox.Position = UDim2.new(0, 16, 0, 208)
+    keyBox.Size = UDim2.new(1, -36, 0, 40)
+    keyBox.Position = UDim2.new(0, 18, 0, 218)
     keyBox.BackgroundColor3 = Color3.fromRGB(22, 25, 33)
     keyBox.BorderSizePixel = 0
     keyBox.PlaceholderText = "paste your key here..."
@@ -275,13 +403,13 @@ local function buildKeyGui(hwid)
     keyBox.TextSize = 13
     keyBox.ClearTextOnFocus = false
     keyBox.Parent = frame
-    local kc = Instance.new("UICorner") kc.CornerRadius = UDim.new(0, 6) kc.Parent = keyBox
+    local kc = Instance.new("UICorner") kc.CornerRadius = UDim.new(0, 8) kc.Parent = keyBox
     local ks = Instance.new("UIStroke")
     ks.Color = Color3.fromRGB(120, 180, 255) ks.Thickness = 1 ks.Transparency = 0.7 ks.Parent = keyBox
 
     local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(1, -32, 0, 18)
-    status.Position = UDim2.new(0, 16, 0, 252)
+    status.Size = UDim2.new(1, -36, 0, 18)
+    status.Position = UDim2.new(0, 18, 0, 264)
     status.BackgroundTransparency = 1
     status.Text = ""
     status.TextColor3 = Color3.fromRGB(150, 158, 175)
@@ -291,8 +419,8 @@ local function buildKeyGui(hwid)
     status.Parent = frame
 
     local verifyBtn = Instance.new("TextButton")
-    verifyBtn.Size = UDim2.new(1, -32, 0, 40)
-    verifyBtn.Position = UDim2.new(0, 16, 0, 280)
+    verifyBtn.Size = UDim2.new(1, -36, 0, 42)
+    verifyBtn.Position = UDim2.new(0, 18, 0, 288)
     verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 180, 255)
     verifyBtn.Text = "VERIFY & LOAD HUB"
     verifyBtn.TextColor3 = Color3.fromRGB(14, 16, 22)
@@ -301,43 +429,94 @@ local function buildKeyGui(hwid)
     verifyBtn.BorderSizePixel = 0
     verifyBtn.AutoButtonColor = false
     verifyBtn.Parent = frame
-    local vc = Instance.new("UICorner") vc.CornerRadius = UDim.new(0, 6) vc.Parent = verifyBtn
-    verifyBtn.MouseEnter:Connect(function() verifyBtn.BackgroundColor3 = Color3.fromRGB(160, 200, 255) end)
-    verifyBtn.MouseLeave:Connect(function() verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 180, 255) end)
+    local vc = Instance.new("UICorner") vc.CornerRadius = UDim.new(0, 8) vc.Parent = verifyBtn
+    verifyBtn.MouseEnter:Connect(function()
+        TweenService:Create(verifyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(160, 200, 255) }):Play()
+    end)
+    verifyBtn.MouseLeave:Connect(function()
+        TweenService:Create(verifyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(120, 180, 255) }):Play()
+    end)
 
-    local hint = Instance.new("TextLabel")
-    hint.Size = UDim2.new(1, -32, 0, 18)
-    hint.Position = UDim2.new(0, 16, 0, 332)
-    hint.BackgroundTransparency = 1
-    hint.Text = REQUIRE_HWID
-        and "key binds to this hwid — not shareable"
-        or  "hwid lock off — key works on any device"
-    hint.TextColor3 = Color3.fromRGB(120, 130, 150)
-    hint.Font = Enum.Font.Gotham
-    hint.TextSize = 10
-    hint.TextXAlignment = Enum.TextXAlignment.Center
-    hint.Parent = frame
+    --===== DIVIDER =====--
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(1, -36, 0, 1)
+    divider.Position = UDim2.new(0, 18, 0, 348)
+    divider.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
+    divider.BorderSizePixel = 0
+    divider.Parent = frame
 
-    local verLbl = Instance.new("TextLabel")
-    verLbl.Size = UDim2.new(1, -32, 0, 16)
-    verLbl.Position = UDim2.new(0, 16, 0, 356)
-    verLbl.BackgroundTransparency = 1
-    verLbl.Text = "powered by panda auth  ·  secure.pandauth.com"
-    verLbl.TextColor3 = Color3.fromRGB(90, 100, 120)
-    verLbl.Font = Enum.Font.Gotham
-    verLbl.TextSize = 10
-    verLbl.TextXAlignment = Enum.TextXAlignment.Center
-    verLbl.Parent = frame
+    --===== SOCIAL ROW =====--
+    local discordBtn = Instance.new("TextButton")
+    discordBtn.Size = UDim2.new(0.5, -23, 0, 36)
+    discordBtn.Position = UDim2.new(0, 18, 0, 362)
+    discordBtn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+    discordBtn.Text = "join discord"
+    discordBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    discordBtn.Font = Enum.Font.GothamBold
+    discordBtn.TextSize = 13
+    discordBtn.BorderSizePixel = 0
+    discordBtn.AutoButtonColor = false
+    discordBtn.Parent = frame
+    local dbc = Instance.new("UICorner") dbc.CornerRadius = UDim.new(0, 8) dbc.Parent = discordBtn
+    discordBtn.MouseEnter:Connect(function()
+        TweenService:Create(discordBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(110, 122, 255) }):Play()
+    end)
+    discordBtn.MouseLeave:Connect(function()
+        TweenService:Create(discordBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(88, 101, 242) }):Play()
+    end)
+    discordBtn.MouseButton1Click:Connect(function()
+        if setclipboard then
+            pcall(setclipboard, DISCORD_URL)
+            discordBtn.Text = "✓  link copied"
+            task.delay(2, function() discordBtn.Text = "join discord" end)
+        end
+    end)
+
+    local premiumBtn = Instance.new("TextButton")
+    premiumBtn.Size = UDim2.new(0.5, -23, 0, 36)
+    premiumBtn.Position = UDim2.new(0.5, 5, 0, 362)
+    premiumBtn.BackgroundColor3 = Color3.fromRGB(140, 90, 220)
+    premiumBtn.Text = "get premium"
+    premiumBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    premiumBtn.Font = Enum.Font.GothamBold
+    premiumBtn.TextSize = 13
+    premiumBtn.BorderSizePixel = 0
+    premiumBtn.AutoButtonColor = false
+    premiumBtn.Parent = frame
+    local pbc = Instance.new("UICorner") pbc.CornerRadius = UDim.new(0, 8) pbc.Parent = premiumBtn
+    premiumBtn.MouseEnter:Connect(function()
+        TweenService:Create(premiumBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(165, 115, 245) }):Play()
+    end)
+    premiumBtn.MouseLeave:Connect(function()
+        TweenService:Create(premiumBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(140, 90, 220) }):Play()
+    end)
+    premiumBtn.MouseButton1Click:Connect(function()
+        if setclipboard then
+            pcall(setclipboard, DISCORD_URL)
+            premiumBtn.Text = "✓  link copied"
+            task.delay(2, function() premiumBtn.Text = "get premium" end)
+        end
+    end)
+
+    --===== FOOTER =====
+    local foot = Instance.new("TextLabel")
+    foot.Size = UDim2.new(1, -36, 0, 14)
+    foot.Position = UDim2.new(0, 18, 0, 412)
+    foot.BackgroundTransparency = 1
+    foot.Text = "powered by panda auth  ·  join discord to request premium"
+    foot.TextColor3 = Color3.fromRGB(90, 100, 120)
+    foot.Font = Enum.Font.Gotham
+    foot.TextSize = 10
+    foot.TextXAlignment = Enum.TextXAlignment.Center
+    foot.Parent = frame
 
     local state = { verified = false, closed = false, checking = false }
 
-    --===== CLOSE =====--
     closeBtn.MouseButton1Click:Connect(function()
         state.closed = true
         sg:Destroy()
     end)
 
-    --===== VERIFY =====--
     verifyBtn.MouseButton1Click:Connect(function()
         if state.checking then return end
         local key = (keyBox.Text or ""):gsub("%s+", "")
@@ -346,33 +525,29 @@ local function buildKeyGui(hwid)
             status.TextColor3 = Color3.fromRGB(255, 90, 90)
             return
         end
-
         state.checking = true
         status.Text = "checking with panda auth..."
         status.TextColor3 = Color3.fromRGB(255, 190, 90)
         verifyBtn.Text = "CHECKING..."
-        verifyBtn.BackgroundColor3 = Color3.fromRGB(180, 180, 180)
+        TweenService:Create(verifyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(180, 180, 180) }):Play()
 
         task.spawn(function()
             local ok = validateKey(key, hwid)
             state.checking = false
-
             if ok then
                 writeCache(key)
                 state.verified = true
                 status.Text = "valid — loading hub"
                 status.TextColor3 = Color3.fromRGB(120, 230, 140)
                 verifyBtn.Text = "AUTHENTICATED"
-                verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 230, 140)
+                TweenService:Create(verifyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(120, 230, 140) }):Play()
                 task.wait(0.7)
                 sg:Destroy()
             else
-                status.Text = REQUIRE_HWID
-                    and "invalid key, or not bound to this hwid"
-                    or  "invalid key"
+                status.Text = REQUIRE_HWID and "invalid key, or not bound to this hwid" or "invalid key"
                 status.TextColor3 = Color3.fromRGB(255, 90, 90)
                 verifyBtn.Text = "VERIFY & LOAD HUB"
-                verifyBtn.BackgroundColor3 = Color3.fromRGB(120, 180, 255)
+                TweenService:Create(verifyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(120, 180, 255) }):Play()
             end
         end)
     end)
@@ -382,6 +557,7 @@ end
 
 --== GATE ==--
 local function keyGate()
+    -- silent cache check first
     local cached = readCache()
     if cached and validateKey(cached, MY_HWID) then
         return true
@@ -389,6 +565,10 @@ local function keyGate()
         clearCache()
     end
 
+    -- show loading screen
+    showLoadingScreen()
+
+    -- then key gui
     local sg, state = buildKeyGui(MY_HWID)
     while not state.verified and not state.closed and sg.Parent do
         task.wait(0.2)
